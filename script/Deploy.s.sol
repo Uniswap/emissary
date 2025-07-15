@@ -1,18 +1,17 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity 0.8.26;
+pragma solidity 0.8.30;
 
 import 'forge-std/Script.sol';
 
-import {ICounter} from '../src/interfaces/ICounter.sol';
+import {KeyManagerEmissary} from 'src/KeyManagerEmissary.sol';
 
 contract Deploy is Script {
     using stdJson for string;
 
-    function run() public returns (ICounter counter) {
-        uint256 initialNumber = 5;
-        bytes memory bytecode = abi.encodePacked(vm.getCode('Counter.sol:Counter'), abi.encode(initialNumber));
+    function run() public returns (KeyManagerEmissary emissary) {
+        bytes memory bytecode = abi.encodePacked(vm.getCode('KeyManagerEmissary.sol:KeyManagerEmissary'));
         assembly {
-            counter := create(0, add(bytecode, 0x20), mload(bytecode))
+            emissary := create(0, add(bytecode, 0x20), mload(bytecode))
         }
     }
 }
