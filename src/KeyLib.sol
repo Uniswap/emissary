@@ -54,7 +54,7 @@ library KeyLib {
         KeyType keyType;
         uint256 keyMaterialPtr;
 
-        assembly {
+        assembly ("memory-safe") {
             // Load the packed struct fields
             let keyData := sload(key.slot)
             keyType := and(keyData, 0xff)
@@ -66,17 +66,22 @@ library KeyLib {
 
         if (keyType == KeyType.Secp256k1) {
             address expectedSigner;
-            assembly {
+            assembly ("memory-safe") {
                 expectedSigner := sload(keyMaterialPtr)
             }
 
-            // Try direct ECDSA recovery first
+            // Both ECDSA and EIP-1271 signatures are acceptable, but we prefer ECDSA because signing with the private
+            // key is unequivocal while EIP-1271 signers could potentially modify signer validation logic and/or deny
+            // signatures (even if validly signed by the pk). This is a security risk that is addressed by checking if
+            // the sig came from the pk before attempting EIP-1271 validation.
+
+            // 1) Try ecrecover first (signing with the private key is always unequivocal)
             if (signature.length == 64 || signature.length == 65) {
                 address recovered = ECDSA.tryRecoverCalldata(digest, signature);
                 if (recovered == expectedSigner) return true;
             }
 
-            // Try EIP-1271 if the expected signer is a contract
+            // 2) If the expected signer is a contract, try EIP-1271 as a fallback
             if (expectedSigner.code.length > 0) {
                 try IERC1271(expectedSigner).isValidSignature(digest, signature) returns (bytes4 magicValue) {
                     return magicValue == IERC1271.isValidSignature.selector;
