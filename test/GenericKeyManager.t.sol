@@ -224,8 +224,8 @@ contract GenericKeyManagerTest is Test {
         bytes32 keyHash = keyManager.registerKey(alice, KeyType.Secp256k1, abi.encode(alice), ResetPeriod.OneDay);
 
         // Generate a test signature
-        bytes32 testDigest = keccak256(abi.encodePacked('test message'));
-        bytes memory testSignature = generateSecp256k1Signature(testDigest, alicePrivateKey);
+        testDigest = keccak256(abi.encodePacked('test message'));
+        testSignature = generateSecp256k1Signature(testDigest, alicePrivateKey);
 
         // Test verification with the correct key hash
         bool success = keyManager.verifySignatureWithKey(alice, keyHash, testDigest, testSignature);
@@ -333,13 +333,13 @@ contract GenericKeyManagerTest is Test {
         assertEq(compatibleKeys[1], keyHash2);
     }
 
-    function test_KeyManager_ComputeKeyHash() public {
+    function test_KeyManager_ComputeKeyHash() public view {
         bytes32 computedHash = keyManager.computeKeyHash(secp256k1Key);
         bytes32 expectedHash = secp256k1Key.hash();
         assertEq(computedHash, expectedHash);
     }
 
-    function test_KeyManager_ValidateKey() public {
+    function test_KeyManager_ValidateKey() public view {
         assertTrue(keyManager.validateKey(secp256k1Key));
 
         // Test invalid key
@@ -411,7 +411,6 @@ contract GenericKeyManagerTest is Test {
 
     function test_RegisterMultisig_2of3() public {
         _setupMultisigKeys();
-        bytes32 multisigTestDigest = keccak256('test multisig message');
 
         uint16[] memory signerIndices = new uint16[](3);
         signerIndices[0] = 0; // Alice's key
