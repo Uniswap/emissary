@@ -39,7 +39,7 @@ library KeyLib {
      * @return keyHash The keccak256 hash of the key
      */
     function hash(Key memory key) internal pure returns (bytes32 keyHash) {
-        return keccak256(abi.encode(key.keyType, keccak256(key.publicKey)));
+        return keccak256(abi.encode(key.keyType, key.publicKey));
     }
 
     /**
