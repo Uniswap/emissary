@@ -5,7 +5,7 @@ import {Test} from 'forge-std/Test.sol';
 
 import {ResetPeriod} from 'lib/the-compact/src/types/ResetPeriod.sol';
 import {BaseKeyVerifier} from 'src/BaseKeyVerifier.sol';
-import {GenericKeyManager} from 'src/GenericKeyManager.sol';
+import {GenericKeyManager, MultisigConfig, MultisigSignature} from 'src/GenericKeyManager.sol';
 
 import {Key, KeyLib, KeyType} from 'src/KeyLib.sol';
 import {ISignatureVerifier} from 'src/interfaces/ISignatureVerifier.sol';
@@ -19,8 +19,10 @@ contract GenericKeyManagerTest is Test {
 
     address alice;
     address bob;
+    address charlie;
     uint256 alicePrivateKey;
     uint256 bobPrivateKey;
+    uint256 charliePrivateKey;
 
     // Test keys for different types
     Key secp256k1Key;
@@ -37,8 +39,10 @@ contract GenericKeyManagerTest is Test {
         // Create test addresses
         alicePrivateKey = 0xa11ce;
         bobPrivateKey = 0xb0b;
+        charliePrivateKey = 0xcc;
         alice = vm.addr(alicePrivateKey);
         bob = vm.addr(bobPrivateKey);
+        charlie = vm.addr(charliePrivateKey);
 
         // Create test digest
         testDigest = keccak256('test message');
@@ -392,5 +396,451 @@ contract GenericKeyManagerTest is Test {
         (bool success, bytes32 usedKeyHash) = keyManager.verifySignatureWithAnyKey(user, digest, signature);
         assertTrue(success);
         assertEq(usedKeyHash, keyHash);
+    }
+
+    // ================= MULTISIG TESTS =================
+
+    function _setupMultisigKeys() internal {
+        // Register keys for Alice to use in multisig tests
+        vm.startPrank(alice);
+        keyManager.registerKey(KeyType.Secp256k1, abi.encode(alice), ResetPeriod.OneDay);
+        keyManager.registerKey(KeyType.Secp256k1, abi.encode(bob), ResetPeriod.OneDay);
+        keyManager.registerKey(KeyType.Secp256k1, abi.encode(charlie), ResetPeriod.OneDay);
+        vm.stopPrank();
+    }
+
+    function test_RegisterMultisig_2of3() public {
+        _setupMultisigKeys();
+        bytes32 multisigTestDigest = keccak256('test multisig message');
+
+        uint16[] memory signerIndices = new uint16[](3);
+        signerIndices[0] = 0; // Alice's key
+        signerIndices[1] = 1; // Bob's key
+        signerIndices[2] = 2; // Charlie's key
+
+        vm.prank(alice);
+        bytes32 multisigHash = keyManager.registerMultisig(
+            2, // threshold
+            signerIndices,
+            ResetPeriod.SevenDaysAndOneHour
+        );
+
+        // Verify multisig was registered
+        assertTrue(keyManager.isMultisigRegistered(alice, multisigHash));
+
+        // Verify multisig details
+        MultisigConfig memory config = keyManager.getMultisig(alice, multisigHash);
+        assertEq(config.threshold, 2);
+        assertEq(config.signerCount, 3);
+        assertEq(uint8(config.resetPeriod), uint8(ResetPeriod.SevenDaysAndOneHour));
+
+        // Verify bitmap is correct (bits 0, 1, 2 should be set)
+        assertEq(config.signerBitmap & (1 << 0), 1 << 0); // Alice
+        assertEq(config.signerBitmap & (1 << 1), 1 << 1); // Bob
+        assertEq(config.signerBitmap & (1 << 2), 1 << 2); // Charlie
+
+        // Verify count
+        assertEq(keyManager.getMultisigCount(alice), 1);
+    }
+
+    function test_RegisterMultisig_3of5() public {
+        _setupMultisigKeys();
+
+        // Add two more keys for testing
+        vm.prank(alice);
+        keyManager.registerKey(KeyType.Secp256k1, abi.encode(makeAddr('user4')), ResetPeriod.OneDay);
+
+        vm.prank(alice);
+        keyManager.registerKey(KeyType.Secp256k1, abi.encode(makeAddr('user5')), ResetPeriod.OneDay);
+
+        uint16[] memory signerIndices = new uint16[](5);
+        signerIndices[0] = 0;
+        signerIndices[1] = 1;
+        signerIndices[2] = 2;
+        signerIndices[3] = 3;
+        signerIndices[4] = 4;
+
+        vm.prank(alice);
+        bytes32 multisigHash = keyManager.registerMultisig(
+            3, // threshold
+            signerIndices,
+            ResetPeriod.ThirtyDays
+        );
+
+        MultisigConfig memory config = keyManager.getMultisig(alice, multisigHash);
+        assertEq(config.threshold, 3);
+        assertEq(config.signerCount, 5);
+
+        // Verify all bits are set correctly
+        for (uint256 i = 0; i < 5; i++) {
+            assertEq(config.signerBitmap & (1 << i), 1 << i);
+        }
+    }
+
+    function test_RegisterMultisig_InvalidThreshold() public {
+        _setupMultisigKeys();
+
+        uint16[] memory signerIndices = new uint16[](3);
+        signerIndices[0] = 0;
+        signerIndices[1] = 1;
+        signerIndices[2] = 2;
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(GenericKeyManager.InvalidMultisigConfig.selector, 'Invalid threshold'));
+        keyManager.registerMultisig(0, signerIndices, ResetPeriod.SevenDaysAndOneHour); // threshold 0
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(GenericKeyManager.InvalidMultisigConfig.selector, 'Invalid threshold'));
+        keyManager.registerMultisig(4, signerIndices, ResetPeriod.SevenDaysAndOneHour); // threshold > signer count
+    }
+
+    function test_RegisterMultisig_DuplicateSignerIndex() public {
+        _setupMultisigKeys();
+
+        uint16[] memory signerIndices = new uint16[](3);
+        signerIndices[0] = 0;
+        signerIndices[1] = 1;
+        signerIndices[2] = 1; // Duplicate
+
+        vm.prank(alice);
+        vm.expectRevert(
+            abi.encodeWithSelector(GenericKeyManager.InvalidMultisigConfig.selector, 'Duplicate signer index')
+        );
+        keyManager.registerMultisig(2, signerIndices, ResetPeriod.SevenDaysAndOneHour);
+    }
+
+    function test_RegisterMultisig_OutOfBoundsIndex() public {
+        _setupMultisigKeys();
+
+        uint16[] memory signerIndices = new uint16[](2);
+        signerIndices[0] = 0;
+        signerIndices[1] = 10; // Out of bounds (only have 3 keys)
+
+        vm.prank(alice);
+        vm.expectRevert(
+            abi.encodeWithSelector(GenericKeyManager.InvalidMultisigConfig.selector, 'Signer index out of bounds')
+        );
+        keyManager.registerMultisig(2, signerIndices, ResetPeriod.SevenDaysAndOneHour);
+    }
+
+    function test_VerifyMultisigSignature_2of3_Success() public {
+        _setupMultisigKeys();
+        bytes32 multisigTestDigest = keccak256('test multisig message');
+
+        // Register a 2-of-3 multisig
+        uint16[] memory signerIndices = new uint16[](3);
+        signerIndices[0] = 0; // Alice
+        signerIndices[1] = 1; // Bob
+        signerIndices[2] = 2; // Charlie
+
+        vm.prank(alice);
+        bytes32 multisigHash = keyManager.registerMultisig(2, signerIndices, ResetPeriod.SevenDaysAndOneHour);
+
+        // Create signatures from Alice and Bob (meets threshold)
+        bytes memory aliceSignature = generateSecp256k1Signature(multisigTestDigest, alicePrivateKey);
+        bytes memory bobSignature = generateSecp256k1Signature(multisigTestDigest, bobPrivateKey);
+
+        uint16[] memory participantIndices = new uint16[](2);
+        participantIndices[0] = 0; // Alice's key index
+        participantIndices[1] = 1; // Bob's key index
+
+        bytes[] memory signatures = new bytes[](2);
+        signatures[0] = aliceSignature;
+        signatures[1] = bobSignature;
+
+        MultisigSignature memory multisigSig = MultisigSignature({
+            multisigHash: multisigHash,
+            participantIndices: participantIndices,
+            signatures: signatures
+        });
+
+        // Verify the multisig signature
+        bool success = keyManager.verifyMultisigSignature(alice, multisigHash, multisigTestDigest, multisigSig);
+        assertTrue(success);
+    }
+
+    function test_VerifyMultisigSignature_2of3_InsufficientSignatures() public {
+        _setupMultisigKeys();
+        bytes32 multisigTestDigest = keccak256('test multisig message');
+
+        // Register a 2-of-3 multisig
+        uint16[] memory signerIndices = new uint16[](3);
+        signerIndices[0] = 0;
+        signerIndices[1] = 1;
+        signerIndices[2] = 2;
+
+        vm.prank(alice);
+        bytes32 multisigHash = keyManager.registerMultisig(2, signerIndices, ResetPeriod.SevenDaysAndOneHour);
+
+        // Create signature from only Alice (doesn't meet threshold)
+        bytes memory aliceSignature = generateSecp256k1Signature(multisigTestDigest, alicePrivateKey);
+
+        uint16[] memory participantIndices = new uint16[](1);
+        participantIndices[0] = 0;
+
+        bytes[] memory signatures = new bytes[](1);
+        signatures[0] = aliceSignature;
+
+        MultisigSignature memory multisigSig = MultisigSignature({
+            multisigHash: multisigHash,
+            participantIndices: participantIndices,
+            signatures: signatures
+        });
+
+        // Verify should fail due to insufficient signatures
+        bool success = keyManager.verifyMultisigSignature(alice, multisigHash, multisigTestDigest, multisigSig);
+        assertFalse(success);
+    }
+
+    function test_VerifyMultisigSignature_InvalidSigner() public {
+        _setupMultisigKeys();
+        bytes32 multisigTestDigest = keccak256('test multisig message');
+
+        // Register a 2-of-3 multisig with only indices 0, 1, 2
+        uint16[] memory signerIndices = new uint16[](3);
+        signerIndices[0] = 0;
+        signerIndices[1] = 1;
+        signerIndices[2] = 2;
+
+        vm.prank(alice);
+        bytes32 multisigHash = keyManager.registerMultisig(2, signerIndices, ResetPeriod.SevenDaysAndOneHour);
+
+        // Add a 4th key that's not part of the multisig
+        vm.prank(alice);
+        keyManager.registerKey(KeyType.Secp256k1, abi.encode(makeAddr('user4')), ResetPeriod.OneDay);
+
+        // Try to use the 4th key (index 3) which is not in the multisig
+        bytes memory aliceSignature = generateSecp256k1Signature(multisigTestDigest, alicePrivateKey);
+        bytes memory invalidSignature = generateSecp256k1Signature(multisigTestDigest, uint256(keccak256('user4')));
+
+        uint16[] memory participantIndices = new uint16[](2);
+        participantIndices[0] = 0; // Valid signer
+        participantIndices[1] = 3; // Invalid signer (not in bitmap)
+
+        bytes[] memory signatures = new bytes[](2);
+        signatures[0] = aliceSignature;
+        signatures[1] = invalidSignature;
+
+        MultisigSignature memory multisigSig = MultisigSignature({
+            multisigHash: multisigHash,
+            participantIndices: participantIndices,
+            signatures: signatures
+        });
+
+        // Should still succeed with just Alice's valid signature if we add another valid one
+        participantIndices[1] = 1; // Change to Bob (valid signer)
+        signatures[1] = generateSecp256k1Signature(multisigTestDigest, bobPrivateKey);
+
+        bool success = keyManager.verifyMultisigSignature(alice, multisigHash, multisigTestDigest, multisigSig);
+        assertTrue(success);
+    }
+
+    function test_VerifyMultisigSignature_WrongMultisigHash() public {
+        _setupMultisigKeys();
+        bytes32 multisigTestDigest = keccak256('test multisig message');
+
+        uint16[] memory signerIndices = new uint16[](2);
+        signerIndices[0] = 0;
+        signerIndices[1] = 1;
+
+        vm.prank(alice);
+        bytes32 multisigHash = keyManager.registerMultisig(2, signerIndices, ResetPeriod.SevenDaysAndOneHour);
+
+        bytes memory aliceSignature = generateSecp256k1Signature(multisigTestDigest, alicePrivateKey);
+        bytes memory bobSignature = generateSecp256k1Signature(multisigTestDigest, bobPrivateKey);
+
+        uint16[] memory participantIndices = new uint16[](2);
+        participantIndices[0] = 0;
+        participantIndices[1] = 1;
+
+        bytes[] memory signatures = new bytes[](2);
+        signatures[0] = aliceSignature;
+        signatures[1] = bobSignature;
+
+        // Use wrong multisig hash in signature
+        MultisigSignature memory multisigSig = MultisigSignature({
+            multisigHash: keccak256('wrong hash'),
+            participantIndices: participantIndices,
+            signatures: signatures
+        });
+
+        bool success = keyManager.verifyMultisigSignature(alice, multisigHash, multisigTestDigest, multisigSig);
+        assertFalse(success);
+    }
+
+    function test_ScheduleMultisigRemoval() public {
+        _setupMultisigKeys();
+
+        uint16[] memory signerIndices = new uint16[](2);
+        signerIndices[0] = 0;
+        signerIndices[1] = 1;
+
+        vm.prank(alice);
+        bytes32 multisigHash = keyManager.registerMultisig(2, signerIndices, ResetPeriod.SevenDaysAndOneHour);
+
+        // Schedule removal
+        vm.warp(1000);
+        vm.prank(alice);
+        uint256 removableAt = keyManager.scheduleMultisigRemoval(multisigHash);
+
+        // Should be removable after reset period (7 days + 1 hour)
+        assertEq(removableAt, 1000 + 7 days + 1 hours);
+
+        // Check removal status
+        (bool isScheduled, uint256 scheduledAt) = keyManager.getMultisigRemovalStatus(alice, multisigHash);
+        assertTrue(isScheduled);
+        assertEq(scheduledAt, removableAt);
+
+        // Should not be removable yet
+        assertFalse(keyManager.canRemoveMultisig(alice, multisigHash));
+    }
+
+    function test_RemoveMultisig() public {
+        _setupMultisigKeys();
+
+        uint16[] memory signerIndices = new uint16[](2);
+        signerIndices[0] = 0;
+        signerIndices[1] = 1;
+
+        vm.prank(alice);
+        bytes32 multisigHash = keyManager.registerMultisig(2, signerIndices, ResetPeriod.SevenDaysAndOneHour);
+
+        // Schedule removal
+        vm.warp(1000);
+        vm.prank(alice);
+        uint256 removableAt = keyManager.scheduleMultisigRemoval(multisigHash);
+
+        // Try to remove before timelock expires
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(GenericKeyManager.MultisigRemovalUnavailable.selector, removableAt));
+        keyManager.removeMultisig(multisigHash);
+
+        // Warp to after timelock
+        vm.warp(removableAt + 1);
+
+        // Should be removable now
+        assertTrue(keyManager.canRemoveMultisig(alice, multisigHash));
+
+        // Remove the multisig
+        vm.prank(alice);
+        keyManager.removeMultisig(multisigHash);
+
+        // Verify multisig is removed
+        assertFalse(keyManager.isMultisigRegistered(alice, multisigHash));
+        assertEq(keyManager.getMultisigCount(alice), 0);
+    }
+
+    function test_RemoveMultisig_FromMiddleOfArray() public {
+        _setupMultisigKeys();
+
+        // Register multiple multisigs
+        uint16[] memory signerIndices1 = new uint16[](2);
+        signerIndices1[0] = 0;
+        signerIndices1[1] = 1;
+
+        uint16[] memory signerIndices2 = new uint16[](2);
+        signerIndices2[0] = 1;
+        signerIndices2[1] = 2;
+
+        uint16[] memory signerIndices3 = new uint16[](2);
+        signerIndices3[0] = 0;
+        signerIndices3[1] = 2;
+
+        vm.startPrank(alice);
+        bytes32 multisigHash1 = keyManager.registerMultisig(2, signerIndices1, ResetPeriod.SevenDaysAndOneHour);
+        bytes32 multisigHash2 = keyManager.registerMultisig(2, signerIndices2, ResetPeriod.SevenDaysAndOneHour);
+        bytes32 multisigHash3 = keyManager.registerMultisig(2, signerIndices3, ResetPeriod.SevenDaysAndOneHour);
+        vm.stopPrank();
+
+        assertEq(keyManager.getMultisigCount(alice), 3);
+
+        // Schedule and remove the middle multisig
+        vm.warp(1000);
+        vm.prank(alice);
+        uint256 removableAt = keyManager.scheduleMultisigRemoval(multisigHash2);
+
+        vm.warp(removableAt + 1);
+        vm.prank(alice);
+        keyManager.removeMultisig(multisigHash2);
+
+        // Verify array was compacted correctly
+        assertEq(keyManager.getMultisigCount(alice), 2);
+        assertTrue(keyManager.isMultisigRegistered(alice, multisigHash1));
+        assertFalse(keyManager.isMultisigRegistered(alice, multisigHash2));
+        assertTrue(keyManager.isMultisigRegistered(alice, multisigHash3));
+    }
+
+    function test_MultisigQueryFunctions() public {
+        _setupMultisigKeys();
+
+        uint16[] memory signerIndices = new uint16[](3);
+        signerIndices[0] = 0;
+        signerIndices[1] = 1;
+        signerIndices[2] = 2;
+
+        vm.prank(alice);
+        bytes32 multisigHash = keyManager.registerMultisig(2, signerIndices, ResetPeriod.SevenDaysAndOneHour);
+        vm.snapshotGasLastCall('registerMultisig');
+
+        // Test getMultisigHashes
+        bytes32[] memory hashes = keyManager.getMultisigHashes(alice);
+        assertEq(hashes.length, 1);
+        assertEq(hashes[0], multisigHash);
+
+        // Test getMultisig
+        MultisigConfig memory config = keyManager.getMultisig(alice, multisigHash);
+        assertEq(config.threshold, 2);
+        assertEq(config.signerCount, 3);
+        assertEq(config.index, 1); // First multisig gets index 1
+
+        // Test isMultisigRegistered
+        assertTrue(keyManager.isMultisigRegistered(alice, multisigHash));
+        assertFalse(keyManager.isMultisigRegistered(alice, keccak256('nonexistent')));
+
+        // Test getMultisigCount
+        assertEq(keyManager.getMultisigCount(alice), 1);
+    }
+
+    function test_UnauthorizedMultisigManagement() public {
+        _setupMultisigKeys();
+
+        uint16[] memory signerIndices = new uint16[](2);
+        signerIndices[0] = 0;
+        signerIndices[1] = 1;
+
+        // Bob tries to register a multisig for Alice
+        vm.prank(bob);
+        vm.expectRevert(abi.encodeWithSelector(GenericKeyManager.UnauthorizedKeyManagement.selector, bob, alice));
+        keyManager.registerMultisig(alice, 2, signerIndices, ResetPeriod.SevenDaysAndOneHour);
+    }
+
+    function testFuzz_RegisterAndVerifyMultisig(uint8 threshold, uint8 signerCount, uint8 resetPeriodRaw) public {
+        // Bound inputs to valid ranges
+        threshold = uint8(bound(threshold, 1, 10));
+        signerCount = uint8(bound(signerCount, threshold, 10));
+        ResetPeriod resetPeriod = ResetPeriod(bound(resetPeriodRaw, 0, 7));
+
+        // Register enough keys
+        for (uint256 i = keyManager.getKeyCount(alice); i < signerCount; i++) {
+            vm.prank(alice);
+            keyManager.registerKey(KeyType.Secp256k1, abi.encode(vm.addr(i + 100)), ResetPeriod.OneDay);
+        }
+
+        // Create signer indices
+        uint16[] memory signerIndices = new uint16[](signerCount);
+        for (uint256 i = 0; i < signerCount; i++) {
+            signerIndices[i] = uint16(i);
+        }
+
+        // Register multisig
+        vm.prank(alice);
+        bytes32 multisigHash = keyManager.registerMultisig(threshold, signerIndices, resetPeriod);
+
+        // Verify registration
+        assertTrue(keyManager.isMultisigRegistered(alice, multisigHash));
+
+        MultisigConfig memory config = keyManager.getMultisig(alice, multisigHash);
+        assertEq(config.threshold, threshold);
+        assertEq(config.signerCount, signerCount);
     }
 }

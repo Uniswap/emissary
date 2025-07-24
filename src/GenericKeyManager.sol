@@ -5,6 +5,32 @@ import {Key, KeyLib, KeyType} from './KeyLib.sol';
 import {IdLib} from 'lib/the-compact/src/lib/IdLib.sol';
 import {ResetPeriod} from 'lib/the-compact/src/types/ResetPeriod.sol';
 
+/// @notice Configuration for M-of-N multisig
+/// @param signerBitmap Bitmap indicating which keys are signers (bit i = keyHashes[account][i] is a signer)
+/// @param threshold The number of signatures required (M)
+/// @param signerCount The total number of signers (N)
+/// @param resetPeriod The reset period for configuration changes
+/// @param removalTimestamp Timestamp when multisig can be removed (0 means not scheduled)
+/// @param index The 1-based index of this multisig in the multisigHashes array (0 means not registered)
+struct MultisigConfig {
+    uint256 signerBitmap;
+    uint8 threshold;
+    uint8 signerCount;
+    ResetPeriod resetPeriod;
+    uint64 removalTimestamp;
+    uint16 index;
+}
+
+/// @notice Signature data for multisig verification
+/// @param multisigHash The hash of the multisig configuration to use
+/// @param participantIndices Array of key indices that signed (must be sorted)
+/// @param signatures Corresponding signatures from the participants
+struct MultisigSignature {
+    bytes32 multisigHash;
+    uint16[] participantIndices;
+    bytes[] signatures;
+}
+
 /**
  * @title GenericKeyManager
  * @notice A generic key management contract that provides core functionality
@@ -24,6 +50,14 @@ contract GenericKeyManager {
     /// @dev account => keyHash[]
     mapping(address account => bytes32[] keyHashes) public keyHashes;
 
+    /// @notice Registry of multisig configurations for each account
+    /// @dev account => multisigHash => MultisigConfig
+    mapping(address account => mapping(bytes32 multisigHash => MultisigConfig multisig)) public multisigs;
+
+    /// @notice List of multisig hashes for each account (for enumeration)
+    /// @dev account => multisigHash[]
+    mapping(address account => bytes32[] multisigHashes) public multisigHashes;
+
     /// @notice Emitted when a key is registered
     /// @param account The account address
     /// @param keyHash The key hash
@@ -41,6 +75,31 @@ contract GenericKeyManager {
     /// @param keyHash The key hash
     /// @param removableAt The timestamp when the key can be removed
     event KeyRemovalScheduled(address indexed account, bytes32 indexed keyHash, uint256 removableAt);
+
+    /// @notice Emitted when a multisig is registered
+    /// @param account The account address
+    /// @param multisigHash The multisig hash
+    /// @param threshold The signature threshold (M)
+    /// @param signerCount The total number of signers (N)
+    /// @param resetPeriod The reset period for the multisig
+    event MultisigRegistered(
+        address indexed account,
+        bytes32 indexed multisigHash,
+        uint8 threshold,
+        uint8 signerCount,
+        ResetPeriod resetPeriod
+    );
+
+    /// @notice Emitted when a multisig is removed
+    /// @param account The account address
+    /// @param multisigHash The multisig hash
+    event MultisigRemoved(address indexed account, bytes32 indexed multisigHash);
+
+    /// @notice Emitted when a multisig removal is scheduled
+    /// @param account The account address
+    /// @param multisigHash The multisig hash
+    /// @param removableAt The timestamp when the multisig can be removed
+    event MultisigRemovalScheduled(address indexed account, bytes32 indexed multisigHash, uint256 removableAt);
 
     /// @notice Thrown when a key is already registered
     /// @param account The account address
@@ -64,6 +123,24 @@ contract GenericKeyManager {
     /// @param caller The caller address
     /// @param account The account address
     error UnauthorizedKeyManagement(address caller, address account);
+
+    /// @notice Thrown when a multisig is already registered
+    /// @param account The account address
+    /// @param multisigHash The multisig hash
+    error MultisigAlreadyRegistered(address account, bytes32 multisigHash);
+
+    /// @notice Thrown when a multisig is not registered
+    /// @param account The account address
+    /// @param multisigHash The multisig hash
+    error MultisigNotRegistered(address account, bytes32 multisigHash);
+
+    /// @notice Thrown when a multisig configuration is invalid
+    /// @param reason The reason for invalidity
+    error InvalidMultisigConfig(string reason);
+
+    /// @notice Thrown when multisig removal is attempted before timelock expires
+    /// @param removableAt The timestamp when removal will be available
+    error MultisigRemovalUnavailable(uint256 removableAt);
 
     /**
      * @notice Registers a new key for an account
@@ -386,5 +463,344 @@ contract GenericKeyManager {
      */
     function _resetPeriodToSeconds(ResetPeriod resetPeriod) internal pure returns (uint256) {
         return resetPeriod.toSeconds();
+    }
+
+    // ========== MULTISIG FUNCTIONS ==========
+
+    /**
+     * @notice Registers a new multisig for an account
+     * @param account The account to register the multisig for
+     * @param threshold The number of signatures required (M)
+     * @param signerIndices Array of key indices that can sign (references keyHashes[account])
+     * @param resetPeriod The reset period for the multisig
+     * @return multisigHash The hash of the registered multisig
+     */
+    function registerMultisig(
+        address account,
+        uint8 threshold,
+        uint16[] calldata signerIndices,
+        ResetPeriod resetPeriod
+    ) external returns (bytes32 multisigHash) {
+        _checkKeyManagementAuthorization(account);
+        return _registerMultisig(account, threshold, signerIndices, resetPeriod);
+    }
+
+    /**
+     * @notice Registers a new multisig for the caller
+     * @param threshold The number of signatures required (M)
+     * @param signerIndices Array of key indices that can sign
+     * @param resetPeriod The reset period for the multisig
+     * @return multisigHash The hash of the registered multisig
+     */
+    function registerMultisig(uint8 threshold, uint16[] calldata signerIndices, ResetPeriod resetPeriod)
+        external
+        returns (bytes32 multisigHash)
+    {
+        return _registerMultisig(msg.sender, threshold, signerIndices, resetPeriod);
+    }
+
+    /**
+     * @notice Internal function to register a multisig
+     * @param account The account to register the multisig for
+     * @param threshold The number of signatures required (M)
+     * @param signerIndices Array of key indices that can sign (references keyHashes[account])
+     * @param resetPeriod The reset period for the multisig
+     * @return multisigHash The hash of the registered multisig
+     */
+    function _registerMultisig(
+        address account,
+        uint8 threshold,
+        uint16[] calldata signerIndices,
+        ResetPeriod resetPeriod
+    ) internal returns (bytes32 multisigHash) {
+        // Validate inputs
+        uint8 signerCount = uint8(signerIndices.length);
+        require(threshold > 0 && threshold <= signerCount, InvalidMultisigConfig('Invalid threshold'));
+        require(signerCount > 0 && signerCount <= 255, InvalidMultisigConfig('Invalid signer count'));
+        require(signerIndices.length <= keyHashes[account].length, InvalidMultisigConfig('Signer index out of bounds'));
+
+        // Create bitmap from signer indices
+        uint256 signerBitmap = 0;
+        for (uint256 i = 0; i < signerIndices.length; i++) {
+            uint16 index = signerIndices[i];
+            require(index < keyHashes[account].length, InvalidMultisigConfig('Signer index out of bounds'));
+            require((signerBitmap & (1 << index)) == 0, InvalidMultisigConfig('Duplicate signer index'));
+
+            // Verify the key exists
+            bytes32 keyHash = keyHashes[account][index];
+            require(_keyExists(account, keyHash), InvalidMultisigConfig('Referenced key does not exist'));
+
+            signerBitmap |= (1 << index);
+        }
+
+        // Create multisig config
+        MultisigConfig memory config = MultisigConfig({
+            signerBitmap: signerBitmap,
+            threshold: threshold,
+            signerCount: signerCount,
+            resetPeriod: resetPeriod,
+            removalTimestamp: 0,
+            index: 0
+        });
+
+        multisigHash = _computeMultisigHash(config);
+        require(!_multisigExists(account, multisigHash), MultisigAlreadyRegistered(account, multisigHash));
+
+        // Add to multisig hashes list and get the new index
+        multisigHashes[account].push(multisigHash);
+        // We use a 1-based index (0 means unregistered)
+        uint16 newIndex = uint16(multisigHashes[account].length);
+
+        // Update the config with the correct index and store it
+        config.index = newIndex;
+        multisigs[account][multisigHash] = config;
+
+        emit MultisigRegistered(account, multisigHash, threshold, signerCount, resetPeriod);
+    }
+
+    /**
+     * @notice Verifies a multisig signature
+     * @param account The account whose multisig should be checked
+     * @param multisigHash The hash of the multisig configuration to use
+     * @param digest The digest that was signed
+     * @param signature The multisig signature data
+     * @return success True if the signature was verified successfully
+     */
+    function verifyMultisigSignature(
+        address account,
+        bytes32 multisigHash,
+        bytes32 digest,
+        MultisigSignature calldata signature
+    ) public view returns (bool success) {
+        // Verify multisig exists
+        if (!_multisigExists(account, multisigHash)) {
+            return false;
+        }
+
+        // Verify the signature references the correct multisig
+        if (signature.multisigHash != multisigHash) {
+            return false;
+        }
+
+        MultisigConfig storage config = multisigs[account][multisigHash];
+
+        // Check we have enough signatures
+        if (signature.participantIndices.length < config.threshold) {
+            return false;
+        }
+
+        // Verify each signature
+        uint256 validSignatures = 0;
+        for (uint256 i = 0; i < signature.participantIndices.length; i++) {
+            uint16 keyIndex = signature.participantIndices[i];
+
+            // Check this key is a valid signer
+            if ((config.signerBitmap & (1 << keyIndex)) == 0) {
+                continue; // Skip invalid signers
+            }
+
+            // Check key index is within bounds
+            if (keyIndex >= keyHashes[account].length) {
+                continue; // Skip out of bounds indices
+            }
+
+            bytes32 keyHash = keyHashes[account][keyIndex];
+
+            // Verify this individual signature
+            if (verifySignatureWithKey(account, keyHash, digest, signature.signatures[i])) {
+                validSignatures++;
+
+                // Early exit if we have enough valid signatures
+                if (validSignatures >= config.threshold) {
+                    return true;
+                }
+            }
+        }
+
+        return validSignatures >= config.threshold;
+    }
+
+    /**
+     * @notice Schedules a multisig removal for an account
+     * @param account The account to schedule multisig removal for
+     * @param multisigHash The hash of the multisig to schedule for removal
+     * @return removableAt The timestamp when the multisig can be removed
+     */
+    function scheduleMultisigRemoval(address account, bytes32 multisigHash) external returns (uint256 removableAt) {
+        _checkKeyManagementAuthorization(account);
+        return _scheduleMultisigRemoval(account, multisigHash);
+    }
+
+    /**
+     * @notice Schedules a multisig removal for the caller
+     * @param multisigHash The hash of the multisig to schedule for removal
+     * @return removableAt The timestamp when the multisig can be removed
+     */
+    function scheduleMultisigRemoval(bytes32 multisigHash) external returns (uint256 removableAt) {
+        _checkKeyManagementAuthorization(msg.sender);
+        return _scheduleMultisigRemoval(msg.sender, multisigHash);
+    }
+
+    /**
+     * @notice Internal function to schedule multisig removal
+     * @param account The account to schedule multisig removal for
+     * @param multisigHash The hash of the multisig to schedule for removal
+     * @return removableAt The timestamp when the multisig can be removed
+     */
+    function _scheduleMultisigRemoval(address account, bytes32 multisigHash) internal returns (uint256 removableAt) {
+        require(_multisigExists(account, multisigHash), MultisigNotRegistered(account, multisigHash));
+
+        // Get the multisig and its reset period
+        MultisigConfig storage config = multisigs[account][multisigHash];
+        ResetPeriod resetPeriod = config.resetPeriod;
+
+        unchecked {
+            // Calculate when the multisig can be removed (current time + reset period)
+            removableAt = block.timestamp + resetPeriod.toSeconds();
+        }
+
+        // Store the removal schedule directly in the config
+        config.removalTimestamp = uint64(removableAt);
+
+        emit MultisigRemovalScheduled(account, multisigHash, removableAt);
+    }
+
+    /**
+     * @notice Removes a multisig for an account
+     * @param account The account to remove the multisig for
+     * @param multisigHash The hash of the multisig to remove
+     */
+    function removeMultisig(address account, bytes32 multisigHash) external {
+        _checkKeyManagementAuthorization(account);
+        _removeMultisig(account, multisigHash);
+    }
+
+    /**
+     * @notice Removes a multisig for the caller
+     * @param multisigHash The hash of the multisig to remove
+     */
+    function removeMultisig(bytes32 multisigHash) external {
+        _checkKeyManagementAuthorization(msg.sender);
+        _removeMultisig(msg.sender, multisigHash);
+    }
+
+    /**
+     * @notice Internal function to remove a multisig
+     * @param account The account to remove the multisig for
+     * @param multisigHash The hash of the multisig to remove
+     */
+    function _removeMultisig(address account, bytes32 multisigHash) internal {
+        // Check if removal has been properly scheduled and timelock has expired
+        MultisigConfig storage config = multisigs[account][multisigHash];
+        uint64 removableAt = config.removalTimestamp;
+        require(removableAt != 0 && removableAt <= block.timestamp, MultisigRemovalUnavailable(removableAt));
+
+        // Get the multisig's index (1-based) and convert to 0-based
+        uint256 index = uint256(config.index) - 1;
+        bytes32[] storage accountMultisigHashes = multisigHashes[account];
+
+        // If not the last element, swap with last element
+        if (index < accountMultisigHashes.length - 1) {
+            bytes32 lastMultisigHash = accountMultisigHashes[accountMultisigHashes.length - 1];
+            accountMultisigHashes[index] = lastMultisigHash;
+
+            // Update the moved multisig's index in its struct
+            multisigs[account][lastMultisigHash].index = uint16(index + 1); // Convert back to 1-based
+        }
+
+        // Remove the last element
+        accountMultisigHashes.pop();
+
+        // Remove from multisigs mapping (delete the entire struct)
+        delete multisigs[account][multisigHash];
+
+        emit MultisigRemoved(account, multisigHash);
+    }
+
+    /**
+     * @notice Get all multisig hashes for an account
+     * @param account The account address
+     * @return hashes Array of multisig hashes
+     */
+    function getMultisigHashes(address account) external view returns (bytes32[] memory hashes) {
+        return multisigHashes[account];
+    }
+
+    /**
+     * @notice Get details about a specific multisig
+     * @param account The account address
+     * @param multisigHash The multisig hash
+     * @return config The multisig configuration
+     */
+    function getMultisig(address account, bytes32 multisigHash) external view returns (MultisigConfig memory config) {
+        require(_multisigExists(account, multisigHash), MultisigNotRegistered(account, multisigHash));
+        return multisigs[account][multisigHash];
+    }
+
+    /**
+     * @notice Check if a multisig is registered for an account
+     * @param account The account address
+     * @param multisigHash The multisig hash
+     * @return isRegistered True if multisig is registered
+     */
+    function isMultisigRegistered(address account, bytes32 multisigHash) external view returns (bool isRegistered) {
+        return _multisigExists(account, multisigHash);
+    }
+
+    /**
+     * @notice Get the count of multisigs for an account
+     * @param account The account address
+     * @return count Number of registered multisigs
+     */
+    function getMultisigCount(address account) external view returns (uint256 count) {
+        return multisigHashes[account].length;
+    }
+
+    /**
+     * @notice Get the removal status for a specific multisig
+     * @param account The account address
+     * @param multisigHash The multisig hash
+     * @return isScheduled True if removal is scheduled
+     * @return removableAt The timestamp when the multisig can be removed (0 if not scheduled)
+     */
+    function getMultisigRemovalStatus(address account, bytes32 multisigHash)
+        external
+        view
+        returns (bool isScheduled, uint256 removableAt)
+    {
+        require(_multisigExists(account, multisigHash), MultisigNotRegistered(account, multisigHash));
+        uint64 schedule = multisigs[account][multisigHash].removalTimestamp;
+        isScheduled = (schedule != 0);
+        removableAt = uint256(schedule);
+    }
+
+    /**
+     * @notice Check if a multisig can be removed immediately
+     * @param account The account address
+     * @param multisigHash The multisig hash
+     * @return canRemove True if the multisig can be removed now
+     */
+    function canRemoveMultisig(address account, bytes32 multisigHash) external view returns (bool canRemove) {
+        uint64 removableAt = multisigs[account][multisigHash].removalTimestamp;
+        return (removableAt != 0 && block.timestamp >= removableAt);
+    }
+
+    /**
+     * @notice Computes the hash of a multisig configuration
+     * @param config The multisig configuration
+     * @return multisigHash The hash of the configuration
+     */
+    function _computeMultisigHash(MultisigConfig memory config) internal pure returns (bytes32 multisigHash) {
+        return keccak256(abi.encode(config.signerBitmap, config.threshold, config.signerCount, config.resetPeriod));
+    }
+
+    /**
+     * @notice Checks if a multisig exists for an account
+     * @param account The account address
+     * @param multisigHash The multisig hash
+     * @return exists True if multisig exists
+     */
+    function _multisigExists(address account, bytes32 multisigHash) internal view returns (bool exists) {
+        return multisigs[account][multisigHash].index != 0;
     }
 }
