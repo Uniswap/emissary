@@ -107,7 +107,7 @@ library KeyLib {
             }
 
             // Split signature into r and s values
-            bytes32 r = bytes32(signature[0:32]);
+            bytes32 r = bytes32(signature);
             bytes32 s = bytes32(signature[32:64]);
             return P256.verifySignature(digest, r, s, x, y);
         }
