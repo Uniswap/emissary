@@ -1,5 +1,5 @@
 # KeyManagerEmissary
-[Git Source](https://github.com/Uniswap/emissary/blob/338b5651e3672b8603d73d0f0092a62f1841b4f8/src/KeyManagerEmissary.sol)
+[Git Source](https://github.com/Uniswap/emissary/blob/026379c337c2c643aa148c4bc9f4bfba296a3b4a/src/KeyManagerEmissary.sol)
 
 **Inherits:**
 [BaseKeyVerifier](/src/BaseKeyVerifier.sol/contract.BaseKeyVerifier.md), IEmissary
@@ -7,17 +7,16 @@
 A Compact-specific adapter that implements IEmissary using the generic key management foundation
 
 
-## State Variables
-### COMPACT_PROTOCOL_ID
-Protocol identifier for The Compact
+## Functions
+### constructor
+
+Constructor that initializes the protocol identifier
 
 
 ```solidity
-bytes32 public constant COMPACT_PROTOCOL_ID = keccak256('TheCompact');
+constructor() BaseKeyVerifier(keccak256('the-compact.emissary.v1'));
 ```
 
-
-## Functions
 ### verifyClaim
 
 Verifies a claim signature using the registered keys for the sponsor
@@ -53,7 +52,7 @@ Checks if a signature can be verified for a given sponsor and lock tag using any
 
 
 ```solidity
-function canVerifyClaim(address sponsor, bytes32 digest, bytes32, bytes calldata signature, bytes12 lockTag)
+function canVerifyClaim(address sponsor, bytes32 digest, bytes32 claimHash, bytes calldata signature, bytes12 lockTag)
     public
     view
     returns (bool canVerify);
@@ -64,9 +63,41 @@ function canVerifyClaim(address sponsor, bytes32 digest, bytes32, bytes calldata
 |----|----|-----------|
 |`sponsor`|`address`|The sponsor address|
 |`digest`|`bytes32`|The EIP-712 digest that was signed|
-|`<none>`|`bytes32`||
+|`claimHash`|`bytes32`|The claim hash that was signed|
 |`signature`|`bytes`|The signature bytes|
 |`lockTag`|`bytes12`|The lock tag to check reset period compatibility|
+
+**Returns**
+
+|Name|Type|Description|
+|----|----|-----------|
+|`canVerify`|`bool`|True if the signature can be verified|
+
+
+### canVerifySignature
+
+Checks if a signature can be verified for a given account and context
+
+*Parses the verification context to extract the lock tag, and enforces
+reset period compatibility when verifying signatures for The Compact.*
+
+
+```solidity
+function canVerifySignature(address account, bytes32 digest, bytes calldata signature, bytes memory context)
+    public
+    view
+    virtual
+    override
+    returns (bool canVerify);
+```
+**Parameters**
+
+|Name|Type|Description|
+|----|----|-----------|
+|`account`|`address`|The account whose keys should be checked|
+|`digest`|`bytes32`|The digest that was signed|
+|`signature`|`bytes`|The signature to verify|
+|`context`|`bytes`|Protocol-specific context data|
 
 **Returns**
 
@@ -95,27 +126,6 @@ function getKeysForResetPeriod(address sponsor, ResetPeriod resetPeriod) externa
 |Name|Type|Description|
 |----|----|-----------|
 |`<none>`|`bytes32[]`|compatibleKeys Array of key hashes compatible with the reset period|
-
-
-### _isProtocolSupported
-
-Checks if a protocol is supported
-
-
-```solidity
-function _isProtocolSupported(bytes32 protocol) internal view virtual override returns (bool isSupported);
-```
-**Parameters**
-
-|Name|Type|Description|
-|----|----|-----------|
-|`protocol`|`bytes32`|The protocol identifier|
-
-**Returns**
-
-|Name|Type|Description|
-|----|----|-----------|
-|`isSupported`|`bool`|True if the protocol is supported|
 
 
 ### _isKeyCompatible
@@ -156,7 +166,7 @@ Validates the context for correctness
 
 
 ```solidity
-function _validateContext(VerificationContext memory ctx) internal pure virtual override returns (bool isValid);
+function _validateContext(VerificationContext memory ctx) internal view virtual override returns (bool isValid);
 ```
 **Parameters**
 

@@ -1,5 +1,5 @@
 # BaseKeyVerifier
-[Git Source](https://github.com/Uniswap/emissary/blob/338b5651e3672b8603d73d0f0092a62f1841b4f8/src/BaseKeyVerifier.sol)
+[Git Source](https://github.com/Uniswap/emissary/blob/026379c337c2c643aa148c4bc9f4bfba296a3b4a/src/BaseKeyVerifier.sol)
 
 **Inherits:**
 [GenericKeyManager](/src/GenericKeyManager.sol/contract.GenericKeyManager.md), [ISignatureVerifier](/src/interfaces/ISignatureVerifier.sol/interface.ISignatureVerifier.md)
@@ -16,11 +16,18 @@ Protocol identifier for this base verifier
 
 
 ```solidity
-bytes32 public constant PROTOCOL_ID = keccak256('BaseKeyVerifier');
+bytes32 public immutable PROTOCOL_ID;
 ```
 
 
 ## Functions
+### constructor
+
+
+```solidity
+constructor(bytes32 protocolId);
+```
+
 ### verifySignature
 
 Verifies a signature for a specific protocol context
@@ -55,9 +62,10 @@ Checks if a signature can be verified for a given account and context
 
 
 ```solidity
-function canVerifySignature(address account, bytes32 digest, bytes calldata signature, bytes calldata context)
+function canVerifySignature(address account, bytes32 digest, bytes calldata signature, bytes memory context)
     public
     view
+    virtual
     override
     returns (bool canVerify);
 ```
@@ -217,7 +225,7 @@ Validates the context for correctness
 
 
 ```solidity
-function _validateContext(VerificationContext memory ctx) internal pure virtual returns (bool isValid);
+function _validateContext(VerificationContext memory ctx) internal view virtual returns (bool isValid);
 ```
 **Parameters**
 
@@ -280,34 +288,13 @@ function _isKeyCompatible(address account, bytes32 keyHash, bytes32 protocol)
 |`isCompatible`|`bool`|True if the key is compatible|
 
 
-### encodeContext
-
-Encodes a VerificationContext into bytes
-
-
-```solidity
-function encodeContext(VerificationContext memory ctx) external pure returns (bytes memory context);
-```
-**Parameters**
-
-|Name|Type|Description|
-|----|----|-----------|
-|`ctx`|`VerificationContext`|The context to encode|
-
-**Returns**
-
-|Name|Type|Description|
-|----|----|-----------|
-|`context`|`bytes`|The encoded context bytes|
-
-
 ### createBasicContext
 
 Creates a basic verification context with protocol and expiration
 
 
 ```solidity
-function createBasicContext(bytes32 protocol, uint256 expiration) public pure returns (bytes memory context);
+function createBasicContext(bytes32 protocol, uint256 expiration) public virtual returns (bytes memory context);
 ```
 **Parameters**
 
@@ -329,9 +316,10 @@ Creates a context with additional data
 
 
 ```solidity
-function createContext(bytes32 protocol, bytes calldata data, uint256 expiration, uint256 nonce)
-    external
+function createContext(bytes32 protocol, bytes memory data, uint256 expiration, uint256 nonce)
+    public
     pure
+    virtual
     returns (bytes memory context);
 ```
 **Parameters**
