@@ -857,6 +857,109 @@ contract KeyManagerEmissaryTest is Test, P256VerifierEtcher {
         assertEq(result, IEmissary.verifyClaim.selector);
     }
 
+    function test_canVerifyClaim_WithNonZeroClaimHash() public {
+        // Register a Secp256k1 key
+        (address signer, uint256 privateKey) = makeAddrAndKey('ctx-claimhash');
+        Key memory key = KeyLib.fromAddress(signer, ResetPeriod.OneDay);
+        vm.prank(sponsor1);
+        emissary.registerKey(key.keyType, key.publicKey, key.resetPeriod);
+
+        // Create and sign a digest
+        bytes32 digest = keccak256('message with claim hash');
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(privateKey, digest);
+        bytes memory signature = abi.encodePacked(r, s, v);
+
+        // Use a non-zero claimHash; ensure verification succeeds
+        bytes32 claimHash = keccak256('non-zero-claim-hash');
+        bytes12 lockTag = bytes12(uint96(uint8(ResetPeriod.OneMinute)) << 92);
+
+        bytes4 result = emissary.verifyClaim(sponsor1, digest, claimHash, signature, lockTag);
+        assertEq(result, IEmissary.verifyClaim.selector);
+    }
+
+    function test_canVerifySignature_RespectsExpirationInContext() public {
+        // Register a Secp256k1 key
+        vm.warp(42);
+        (address signer, uint256 privateKey) = makeAddrAndKey('ctx-expiration');
+        Key memory key = KeyLib.fromAddress(signer, ResetPeriod.OneMinute);
+        vm.prank(sponsor1);
+        emissary.registerKey(key.keyType, key.publicKey, key.resetPeriod);
+
+        // Create and sign a digest
+        bytes32 digest = keccak256('context expiration test');
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(privateKey, digest);
+        bytes memory signature = abi.encodePacked(r, s, v);
+
+        // Build context with past expiration (ensure non-zero to avoid "unset" semantics)
+        bytes12 lockTag = bytes12(uint96(uint8(ResetPeriod.OneSecond)) << 92);
+        uint256 pastExpiration = block.timestamp - 1;
+        bytes memory expiredContext = emissary.createContext(
+            emissary.PROTOCOL_ID(), abi.encode(lockTag, bytes32('unused-claim')), pastExpiration, 0
+        );
+        bool canVerifyExpired = emissary.canVerifySignature(sponsor1, digest, signature, expiredContext);
+        assertFalse(canVerifyExpired);
+
+        // Build context with future expiration
+        bytes memory validContext = emissary.createContext(
+            emissary.PROTOCOL_ID(), abi.encode(lockTag, bytes32('unused-claim')), block.timestamp + 3600, 0
+        );
+        bool canVerifyValid = emissary.canVerifySignature(sponsor1, digest, signature, validContext);
+        assertTrue(canVerifyValid);
+    }
+
+    function test_canVerifySignature_WrongProtocolInContext() public {
+        // Register a Secp256k1 key
+        (address signer, uint256 privateKey) = makeAddrAndKey('ctx-protocol');
+        Key memory key = KeyLib.fromAddress(signer, ResetPeriod.OneMinute);
+        vm.prank(sponsor1);
+        emissary.registerKey(key.keyType, key.publicKey, key.resetPeriod);
+
+        // Create and sign a digest
+        bytes32 digest = keccak256('wrong protocol test');
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(privateKey, digest);
+        bytes memory signature = abi.encodePacked(r, s, v);
+
+        // Build context with incorrect protocol id
+        bytes12 lockTag = bytes12(uint96(uint8(ResetPeriod.OneSecond)) << 92);
+        bytes32 wrongProtocol = keccak256('WrongProtocol');
+        bytes memory ctx = emissary.createContext(wrongProtocol, abi.encode(lockTag, bytes32('unused-claim')), 0, 0);
+        bool canVerify = emissary.canVerifySignature(sponsor1, digest, signature, ctx);
+        assertFalse(canVerify);
+    }
+
+    function test_getKeysForResetPeriod_Filtering() public {
+        // Register multiple keys with varying reset periods
+        address a = makeAddr('k1');
+        Key memory k1 = KeyLib.fromAddress(a, ResetPeriod.OneMinute);
+        Key memory k2 = KeyLib.fromP256(P256_X_VALID, P256_Y_VALID, ResetPeriod.TenMinutes);
+        Key memory k3 = KeyLib.fromWebAuthnP256(WEBAUTHN_X_VALID, WEBAUTHN_Y_VALID, ResetPeriod.OneDay);
+
+        vm.startPrank(sponsor1);
+        emissary.registerKey(k1.keyType, k1.publicKey, k1.resetPeriod);
+        emissary.registerKey(k2.keyType, k2.publicKey, k2.resetPeriod);
+        emissary.registerKey(k3.keyType, k3.publicKey, k3.resetPeriod);
+        vm.stopPrank();
+
+        // Request keys compatible with TenMinutes (expect k2 and k3)
+        bytes32[] memory compatible = emissary.getKeysForResetPeriod(sponsor1, ResetPeriod.TenMinutes);
+        assertEq(compatible.length, 2);
+
+        // Convert to set for membership checks
+        bool hasK2;
+        bool hasK3;
+        for (uint256 i = 0; i < compatible.length; i++) {
+            if (compatible[i] == k2.hash()) hasK2 = true;
+            if (compatible[i] == k3.hash()) hasK3 = true;
+        }
+        assertTrue(hasK2);
+        assertTrue(hasK3);
+
+        // Ensure OneMinute key is not included
+        for (uint256 i = 0; i < compatible.length; i++) {
+            assertTrue(compatible[i] != k1.hash());
+        }
+    }
+
     function test_verifyClaim_WebAuthnSignature_CompactEncoding() public {
         // Set up P256 verifier (required for WebAuthn)
         _etchRIPPrecompile(true);

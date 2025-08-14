@@ -34,7 +34,7 @@ contract GenericKeyManagerTest is Test {
 
     function setUp() public {
         keyManager = new GenericKeyManager();
-        keyVerifier = new BaseKeyVerifier();
+        keyVerifier = new BaseKeyVerifier(keccak256('BaseKeyVerifier'));
 
         // Create test addresses
         alicePrivateKey = 0xa11ce;

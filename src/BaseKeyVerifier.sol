@@ -20,13 +20,17 @@ contract BaseKeyVerifier is GenericKeyManager, ISignatureVerifier {
     using DynamicArrayLib for DynamicArrayLib.DynamicArray;
 
     /// @notice Protocol identifier for this base verifier
-    bytes32 public constant PROTOCOL_ID = keccak256('BaseKeyVerifier');
+    bytes32 public immutable PROTOCOL_ID;
 
     /// @notice Emitted when signature verification fails
     error SignatureVerificationFailed();
 
     /// @notice Emitted when context validation fails
     error InvalidContext();
+
+    constructor(bytes32 protocolId) {
+        PROTOCOL_ID = protocolId;
+    }
 
     /**
      * @notice Verifies a signature for a specific protocol context
@@ -54,9 +58,10 @@ contract BaseKeyVerifier is GenericKeyManager, ISignatureVerifier {
      * @param context Protocol-specific context data
      * @return canVerify True if the signature can be verified
      */
-    function canVerifySignature(address account, bytes32 digest, bytes calldata signature, bytes calldata context)
+    function canVerifySignature(address account, bytes32 digest, bytes calldata signature, bytes memory context)
         public
         view
+        virtual
         override
         returns (bool canVerify)
     {
@@ -190,7 +195,7 @@ contract BaseKeyVerifier is GenericKeyManager, ISignatureVerifier {
      * @param ctx The context to validate
      * @return isValid True if the context is valid
      */
-    function _validateContext(VerificationContext memory ctx) internal pure virtual returns (bool isValid) {
+    function _validateContext(VerificationContext memory ctx) internal view virtual returns (bool isValid) {
         // Basic validation - can be overridden by derived contracts
         return ctx.protocol != bytes32(0);
     }
@@ -223,21 +228,12 @@ contract BaseKeyVerifier is GenericKeyManager, ISignatureVerifier {
     }
 
     /**
-     * @notice Encodes a VerificationContext into bytes
-     * @param ctx The context to encode
-     * @return context The encoded context bytes
-     */
-    function encodeContext(VerificationContext memory ctx) external pure returns (bytes memory context) {
-        return abi.encode(ctx.protocol, ctx.data, ctx.expiration, ctx.nonce);
-    }
-
-    /**
      * @notice Creates a basic verification context with protocol and expiration
      * @param protocol The protocol identifier
      * @param expiration The expiration timestamp (0 for no expiration)
      * @return context The encoded context bytes
      */
-    function createBasicContext(bytes32 protocol, uint256 expiration) public pure returns (bytes memory context) {
+    function createBasicContext(bytes32 protocol, uint256 expiration) public virtual returns (bytes memory context) {
         VerificationContext memory ctx =
             VerificationContext({protocol: protocol, data: '', expiration: expiration, nonce: 0});
         return abi.encode(ctx.protocol, ctx.data, ctx.expiration, ctx.nonce);
@@ -251,9 +247,10 @@ contract BaseKeyVerifier is GenericKeyManager, ISignatureVerifier {
      * @param nonce The nonce for replay protection
      * @return context The encoded context bytes
      */
-    function createContext(bytes32 protocol, bytes calldata data, uint256 expiration, uint256 nonce)
-        external
+    function createContext(bytes32 protocol, bytes memory data, uint256 expiration, uint256 nonce)
+        public
         pure
+        virtual
         returns (bytes memory context)
     {
         VerificationContext memory ctx =

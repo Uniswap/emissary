@@ -21,8 +21,8 @@ contract KeyManagerEmissary is BaseKeyVerifier, IEmissary {
     using KeyLib for Key;
     using DynamicArrayLib for DynamicArrayLib.DynamicArray;
 
-    /// @notice Protocol identifier for The Compact
-    bytes32 public constant COMPACT_PROTOCOL_ID = keccak256('TheCompact');
+    /// @notice Constructor that initializes the protocol identifier
+    constructor() BaseKeyVerifier(keccak256('the-compact.emissary.v1')) {}
 
     /**
      * @notice Verifies a claim signature using the registered keys for the sponsor
@@ -47,7 +47,7 @@ contract KeyManagerEmissary is BaseKeyVerifier, IEmissary {
      * @notice Checks if a signature can be verified for a given sponsor and lock tag using any of their registered keys
      * @param sponsor The sponsor address
      * @param digest The EIP-712 digest that was signed
-     * @param (claimHash) The claim hash that was signed (unused in this implementation)
+     * @param claimHash The claim hash that was signed
      * @param signature The signature bytes
      * @param lockTag The lock tag to check reset period compatibility
      * @return canVerify True if the signature can be verified
@@ -55,33 +55,55 @@ contract KeyManagerEmissary is BaseKeyVerifier, IEmissary {
     function canVerifyClaim(
         address sponsor,
         bytes32 digest,
-        bytes32, /* claimHash */
+        bytes32 claimHash,
         bytes calldata signature,
         bytes12 lockTag
     ) public view returns (bool canVerify) {
-        // Get all key hashes for this sponsor
-        bytes32[] memory sponsorKeyHashes = keyHashes[sponsor];
-        ResetPeriod lockTagResetPeriod = lockTag.toResetPeriod();
+        // Encode the lockTag into the verification context and delegate to the
+        // context-aware signature verification flow.
+        bytes memory context = createContext(PROTOCOL_ID, abi.encode(lockTag, claimHash), 0, 0);
+        return canVerifySignature(sponsor, digest, signature, context);
+    }
 
-        // Try to verify the signature against each registered key
-        for (uint256 i = 0; i < sponsorKeyHashes.length; i++) {
-            Key storage key = keys[sponsor][sponsorKeyHashes[i]];
+    /**
+     * @inheritdoc BaseKeyVerifier
+     * @dev Parses the verification context to extract the lock tag, and enforces
+     *      reset period compatibility when verifying signatures for The Compact.
+     */
+    function canVerifySignature(address account, bytes32 digest, bytes calldata signature, bytes memory context)
+        public
+        view
+        virtual
+        override
+        returns (bool canVerify)
+    {
+        // Validate and parse context
+        VerificationContext memory ctx = _parseContext(context);
+        if (!_validateContext(ctx)) {
+            return false;
+        }
 
-            // Check reset period compatibility
-            ResetPeriod keyResetPeriod = key.resetPeriod;
+        if (!_isProtocolSupported(ctx.protocol)) {
+            return false;
+        }
 
-            // Skip this key if reset periods are incompatible
-            if (uint8(lockTagResetPeriod) > uint8(keyResetPeriod)) {
-                continue;
-            }
+        if (ctx.expiration != 0 && block.timestamp >= ctx.expiration) {
+            return false;
+        }
 
-            // Try to verify signature with this key
-            if (key.verify(digest, signature)) {
+        // Extract lockTag from context data
+        (bytes12 lockTag,) = abi.decode(ctx.data, (bytes12, bytes32));
+        ResetPeriod required = lockTag.toResetPeriod();
+
+        // Verify using any key that meets the reset period requirement
+        bytes32[] storage allKeys = keyHashes[account];
+        for (uint256 i = 0; i < allKeys.length; i++) {
+            Key storage key = keys[account][allKeys[i]];
+            if (uint8(key.resetPeriod) >= uint8(required) && key.verify(digest, signature)) {
                 return true;
             }
         }
 
-        // No registered key can verify the signature
         return false;
     }
 
@@ -107,13 +129,6 @@ contract KeyManagerEmissary is BaseKeyVerifier, IEmissary {
 
     /**
      * @inheritdoc BaseKeyVerifier
-     */
-    function _isProtocolSupported(bytes32 protocol) internal view virtual override returns (bool isSupported) {
-        return protocol == COMPACT_PROTOCOL_ID || protocol == PROTOCOL_ID;
-    }
-
-    /**
-     * @inheritdoc BaseKeyVerifier
      * @dev Implements the key compatibility check for The Compact (any valid key)
      */
     function _isKeyCompatible(address account, bytes32 keyHash, bytes32 protocol)
@@ -131,7 +146,7 @@ contract KeyManagerEmissary is BaseKeyVerifier, IEmissary {
      * @inheritdoc BaseKeyVerifier
      * @dev Extends the base validation to include The Compact protocol
      */
-    function _validateContext(VerificationContext memory ctx) internal pure virtual override returns (bool isValid) {
-        return super._validateContext(ctx) && ctx.protocol == COMPACT_PROTOCOL_ID;
+    function _validateContext(VerificationContext memory ctx) internal view virtual override returns (bool isValid) {
+        return super._validateContext(ctx) && ctx.protocol == PROTOCOL_ID;
     }
 }
