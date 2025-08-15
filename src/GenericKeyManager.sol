@@ -250,7 +250,7 @@ contract GenericKeyManager {
 
         unchecked {
             // Calculate when the key can be removed (current time + reset period)
-            removableAt = block.timestamp + _resetPeriodToSeconds(resetPeriod);
+            removableAt = block.timestamp + resetPeriod.toSeconds();
         }
 
         // Store the removal schedule directly in the key
@@ -508,15 +508,6 @@ contract GenericKeyManager {
     function _checkKeyManagementAuthorization(address account) internal view virtual {
         // Default implementation: only the account itself can manage its keys
         require(msg.sender == account, UnauthorizedKeyManagement(msg.sender, account));
-    }
-
-    /**
-     * @notice Converts a ResetPeriod enum to seconds
-     * @param resetPeriod The reset period to convert
-     * @return seconds The reset period in seconds
-     */
-    function _resetPeriodToSeconds(ResetPeriod resetPeriod) internal pure returns (uint256) {
-        return resetPeriod.toSeconds();
     }
 
     // ========== MULTISIG FUNCTIONS ==========

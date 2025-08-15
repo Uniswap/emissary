@@ -1,5 +1,5 @@
 # GenericKeyManager
-[Git Source](https://github.com/Uniswap/emissary/blob/44d6138686b78014ba5685ca490e61e614441093/src/GenericKeyManager.sol)
+[Git Source](https://github.com/Uniswap/emissary/blob/31de58d65fdc210aee2f4a06996f2bdef90c5537/src/GenericKeyManager.sol)
 
 A generic key management contract that provides core functionality
 
@@ -504,27 +504,6 @@ function _checkKeyManagementAuthorization(address account) internal view virtual
 |Name|Type|Description|
 |----|----|-----------|
 |`account`|`address`|The account to check authorization for|
-
-
-### _resetPeriodToSeconds
-
-Converts a ResetPeriod enum to seconds
-
-
-```solidity
-function _resetPeriodToSeconds(ResetPeriod resetPeriod) internal pure returns (uint256);
-```
-**Parameters**
-
-|Name|Type|Description|
-|----|----|-----------|
-|`resetPeriod`|`ResetPeriod`|The reset period to convert|
-
-**Returns**
-
-|Name|Type|Description|
-|----|----|-----------|
-|`<none>`|`uint256`|seconds The reset period in seconds|
 
 
 ### registerMultisig
