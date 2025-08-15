@@ -1,5 +1,5 @@
 # GenericKeyManager
-[Git Source](https://github.com/Uniswap/emissary/blob/338b5651e3672b8603d73d0f0092a62f1841b4f8/src/GenericKeyManager.sol)
+[Git Source](https://github.com/Uniswap/emissary/blob/44d6138686b78014ba5685ca490e61e614441093/src/GenericKeyManager.sol)
 
 A generic key management contract that provides core functionality
 
@@ -50,6 +50,17 @@ List of multisig hashes for each account (for enumeration)
 
 ```solidity
 mapping(address account => bytes32[] multisigHashes) public multisigHashes;
+```
+
+
+### _multisigsUsingKey
+Track which multisigs use a given key for an account
+
+*account => keyHash => multisigHash[]*
+
+
+```solidity
+mapping(address account => mapping(bytes32 keyHash => bytes32[] multisigsUsingKey)) internal _multisigsUsingKey;
 ```
 
 
@@ -777,6 +788,31 @@ function getMultisig(address account, bytes32 multisigHash) external view return
 |`config`|`MultisigConfig`|The multisig configuration|
 
 
+### getAuthorizedKeyHashesForMultisig
+
+Get the current authorized key hashes for a multisig
+
+
+```solidity
+function getAuthorizedKeyHashesForMultisig(address account, bytes32 multisigHash)
+    external
+    view
+    returns (bytes32[] memory authorizedKeyHashes);
+```
+**Parameters**
+
+|Name|Type|Description|
+|----|----|-----------|
+|`account`|`address`|The account address|
+|`multisigHash`|`bytes32`|The multisig hash|
+
+**Returns**
+
+|Name|Type|Description|
+|----|----|-----------|
+|`authorizedKeyHashes`|`bytes32[]`|Array of key hashes that are currently authorized signers for this multisig|
+
+
 ### isMultisigRegistered
 
 Check if a multisig is registered for an account
@@ -868,25 +904,36 @@ function canRemoveMultisig(address account, bytes32 multisigHash) external view 
 |`canRemove`|`bool`|True if the multisig can be removed now|
 
 
-### _computeMultisigHash
+### _computeMultisigIdentityHash
 
-Computes the hash of a multisig configuration
+Computes a stable identity hash for a multisig configuration
+
+*Uses the set of authorized key hashes (order-independent), threshold, signerCount, and resetPeriod.
+This remains stable even if key indices shift.*
 
 
 ```solidity
-function _computeMultisigHash(MultisigConfig memory config) internal pure returns (bytes32 multisigHash);
+function _computeMultisigIdentityHash(
+    bytes32[] memory authorizedKeyHashes,
+    uint8 threshold,
+    uint8 signerCount,
+    ResetPeriod resetPeriod
+) internal pure returns (bytes32 multisigHash);
 ```
 **Parameters**
 
 |Name|Type|Description|
 |----|----|-----------|
-|`config`|`MultisigConfig`|The multisig configuration|
+|`authorizedKeyHashes`|`bytes32[]`|The array of authorized key hashes|
+|`threshold`|`uint8`|The number of signatures required|
+|`signerCount`|`uint8`|Total number of signers|
+|`resetPeriod`|`ResetPeriod`|The reset period of the multisig|
 
 **Returns**
 
 |Name|Type|Description|
 |----|----|-----------|
-|`multisigHash`|`bytes32`|The hash of the configuration|
+|`multisigHash`|`bytes32`|The identity hash of the configuration|
 
 
 ### _multisigExists
@@ -909,6 +956,50 @@ function _multisigExists(address account, bytes32 multisigHash) internal view re
 |Name|Type|Description|
 |----|----|-----------|
 |`exists`|`bool`|True if multisig exists|
+
+
+### getKeyUsageCount
+
+Get number of active multisigs using a specific key
+
+
+```solidity
+function getKeyUsageCount(address account, bytes32 keyHash) external view returns (uint256 count);
+```
+**Parameters**
+
+|Name|Type|Description|
+|----|----|-----------|
+|`account`|`address`|The account address|
+|`keyHash`|`bytes32`|The key hash|
+
+**Returns**
+
+|Name|Type|Description|
+|----|----|-----------|
+|`count`|`uint256`|Number of multisigs using this key|
+
+
+### canSafelyRemoveKey
+
+Check if a key can be safely removed
+
+
+```solidity
+function canSafelyRemoveKey(address account, bytes32 keyHash) external view returns (bool canRemove);
+```
+**Parameters**
+
+|Name|Type|Description|
+|----|----|-----------|
+|`account`|`address`|The account address|
+|`keyHash`|`bytes32`|The key hash|
+
+**Returns**
+
+|Name|Type|Description|
+|----|----|-----------|
+|`canRemove`|`bool`|True if the key is not used in any active multisigs|
 
 
 ## Events
@@ -1142,4 +1233,48 @@ error MultisigRemovalUnavailable(uint256 removableAt);
 |Name|Type|Description|
 |----|----|-----------|
 |`removableAt`|`uint256`|The timestamp when removal will be available|
+
+### KeyStillInUse
+Thrown when trying to remove a key that's still used in multisigs
+
+
+```solidity
+error KeyStillInUse(bytes32 keyHash, uint256 activeMultisigs);
+```
+
+**Parameters**
+
+|Name|Type|Description|
+|----|----|-----------|
+|`keyHash`|`bytes32`|The key hash|
+|`activeMultisigs`|`uint256`|Number of multisigs still using this key|
+
+### MultisigSignerIndexCollision
+Thrown when updating signer bitmaps would cause two signers to collide on the same index
+
+
+```solidity
+error MultisigSignerIndexCollision(bytes32 multisigHash, uint16 newIndex);
+```
+
+**Parameters**
+
+|Name|Type|Description|
+|----|----|-----------|
+|`multisigHash`|`bytes32`|The multisig hash where the collision would occur|
+|`newIndex`|`uint16`|The new index that is already occupied in the bitmap|
+
+### MultisigSignerIndexOutOfRange
+Thrown when a signer index is >= 256 and cannot be represented in the bitmap
+
+
+```solidity
+error MultisigSignerIndexOutOfRange(uint16 index);
+```
+
+**Parameters**
+
+|Name|Type|Description|
+|----|----|-----------|
+|`index`|`uint16`|The invalid signer index|
 
