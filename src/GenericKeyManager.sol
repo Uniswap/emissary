@@ -4,6 +4,8 @@ pragma solidity ^0.8.30;
 import {Key, KeyLib, KeyType} from './KeyLib.sol';
 import {IdLib} from 'lib/the-compact/src/lib/IdLib.sol';
 import {ResetPeriod} from 'lib/the-compact/src/types/ResetPeriod.sol';
+import {DynamicArrayLib} from 'solady/utils/DynamicArrayLib.sol';
+import {LibSort} from 'solady/utils/LibSort.sol';
 
 /// @notice Configuration for M-of-N multisig
 /// @param signerBitmap Bitmap indicating which keys are signers (bit i = keyHashes[account][i] is a signer)
@@ -41,6 +43,7 @@ struct MultisigSignature {
 contract GenericKeyManager {
     using KeyLib for Key;
     using IdLib for ResetPeriod;
+    using DynamicArrayLib for DynamicArrayLib.DynamicArray;
 
     /// @notice Registry of authorized keys for each account
     /// @dev account => keyHash => Key
@@ -57,6 +60,10 @@ contract GenericKeyManager {
     /// @notice List of multisig hashes for each account (for enumeration)
     /// @dev account => multisigHash[]
     mapping(address account => bytes32[] multisigHashes) public multisigHashes;
+
+    /// @notice Track which multisigs use a given key for an account
+    /// @dev account => keyHash => multisigHash[]
+    mapping(address account => mapping(bytes32 keyHash => bytes32[] multisigsUsingKey)) internal _multisigsUsingKey;
 
     /// @notice Emitted when a key is registered
     /// @param account The account address
@@ -141,6 +148,20 @@ contract GenericKeyManager {
     /// @notice Thrown when multisig removal is attempted before timelock expires
     /// @param removableAt The timestamp when removal will be available
     error MultisigRemovalUnavailable(uint256 removableAt);
+
+    /// @notice Thrown when trying to remove a key that's still used in multisigs
+    /// @param keyHash The key hash
+    /// @param activeMultisigs Number of multisigs still using this key
+    error KeyStillInUse(bytes32 keyHash, uint256 activeMultisigs);
+
+    /// @notice Thrown when updating signer bitmaps would cause two signers to collide on the same index
+    /// @param multisigHash The multisig hash where the collision would occur
+    /// @param newIndex The new index that is already occupied in the bitmap
+    error MultisigSignerIndexCollision(bytes32 multisigHash, uint16 newIndex);
+
+    /// @notice Thrown when a signer index is >= 256 and cannot be represented in the bitmap
+    /// @param index The invalid signer index
+    error MultisigSignerIndexOutOfRange(uint16 index);
 
     /**
      * @notice Registers a new key for an account
@@ -258,6 +279,12 @@ contract GenericKeyManager {
     function _removeKey(address account, bytes32 keyHash) internal {
         _checkKeyManagementAuthorization(account);
 
+        // Check if key is still used in any multisigs
+        uint256 usageCount = _multisigsUsingKey[account][keyHash].length;
+        if (usageCount > 0) {
+            revert KeyStillInUse(keyHash, usageCount);
+        }
+
         // Check if removal has been properly scheduled and timelock has expired
         Key storage key = keys[account][keyHash];
         uint64 removableAt = key.removalTimestamp;
@@ -270,6 +297,33 @@ contract GenericKeyManager {
         // If not the last element, swap with last element
         if (index < accountKeyHashes.length - 1) {
             bytes32 lastKeyHash = accountKeyHashes[accountKeyHashes.length - 1];
+
+            // Update all multisigs that reference the key being moved from oldIndex to newIndex
+            uint16 newIndex = uint16(index);
+            uint16 oldIndex = uint16(accountKeyHashes.length - 1);
+
+            bytes32[] storage usingMultisigs = _multisigsUsingKey[account][lastKeyHash];
+            for (uint256 m = 0; m < usingMultisigs.length; m++) {
+                bytes32 msHash = usingMultisigs[m];
+                if (!_multisigExists(account, msHash)) continue;
+                MultisigConfig storage cfg = multisigs[account][msHash];
+
+                // If the multisig does not currently mark the old index as signer, skip
+                if ((cfg.signerBitmap & (1 << oldIndex)) == 0) continue;
+
+                // Collision / range check
+                if (newIndex >= 256 || oldIndex >= 256) {
+                    revert MultisigSignerIndexOutOfRange(newIndex);
+                }
+                if ((cfg.signerBitmap & (1 << newIndex)) != 0) {
+                    revert MultisigSignerIndexCollision(msHash, newIndex);
+                }
+
+                // Move the signer bit from oldIndex to newIndex
+                cfg.signerBitmap = (cfg.signerBitmap & ~(1 << oldIndex)) | (1 << newIndex);
+            }
+
+            // Perform the actual swap in the key hash array
             accountKeyHashes[index] = lastKeyHash;
 
             // Update the moved key's index in its struct
@@ -521,16 +575,20 @@ contract GenericKeyManager {
 
         // Create bitmap from signer indices
         uint256 signerBitmap = 0;
+        // Build the stable list of authorized key hashes (by identity, not index)
+        bytes32[] memory authorizedKeyHashes = new bytes32[](signerIndices.length);
         for (uint256 i = 0; i < signerIndices.length; i++) {
             uint16 index = signerIndices[i];
             require(index < keyHashes[account].length, InvalidMultisigConfig('Signer index out of bounds'));
             require((signerBitmap & (1 << index)) == 0, InvalidMultisigConfig('Duplicate signer index'));
+            if (index >= 256) revert MultisigSignerIndexOutOfRange(index);
 
             // Verify the key exists
             bytes32 keyHash = keyHashes[account][index];
             require(_keyExists(account, keyHash), InvalidMultisigConfig('Referenced key does not exist'));
 
             signerBitmap |= (1 << index);
+            authorizedKeyHashes[i] = keyHash;
         }
 
         // Create multisig config
@@ -543,7 +601,9 @@ contract GenericKeyManager {
             index: 0
         });
 
-        multisigHash = _computeMultisigHash(config);
+        // Compute a stable identity hash based on the set of key identities (order-independent),
+        // threshold, signerCount, and resetPeriod. This will not change if key indices shift.
+        multisigHash = _computeMultisigIdentityHash(authorizedKeyHashes, threshold, signerCount, resetPeriod);
         require(!_multisigExists(account, multisigHash), MultisigAlreadyRegistered(account, multisigHash));
 
         // Add to multisig hashes list and get the new index
@@ -554,6 +614,13 @@ contract GenericKeyManager {
         // Update the config with the correct index and store it
         config.index = newIndex;
         multisigs[account][multisigHash] = config;
+
+        // Track back-references for each key used in this multisig
+        for (uint256 i = 0; i < signerIndices.length; i++) {
+            uint16 sIdx = signerIndices[i];
+            bytes32 sKeyHash = keyHashes[account][sIdx];
+            _multisigsUsingKey[account][sKeyHash].push(multisigHash);
+        }
 
         emit MultisigRegistered(account, multisigHash, threshold, signerCount, resetPeriod);
     }
@@ -584,6 +651,11 @@ contract GenericKeyManager {
 
         MultisigConfig storage config = multisigs[account][multisigHash];
 
+        // Ensure arrays are consistent
+        if (signature.participantIndices.length != signature.signatures.length) {
+            return false;
+        }
+
         // Check we have enough signatures
         if (signature.participantIndices.length < config.threshold) {
             return false;
@@ -591,8 +663,20 @@ contract GenericKeyManager {
 
         // Verify each signature
         uint256 validSignatures = 0;
+        uint16 prevIndex = 0;
+        bool hasPrev = false;
         for (uint256 i = 0; i < signature.participantIndices.length; i++) {
             uint16 keyIndex = signature.participantIndices[i];
+
+            // Enforce strictly increasing, sorted indices to prevent duplicates / double-counting
+            if (hasPrev) {
+                if (keyIndex <= prevIndex) {
+                    return false;
+                }
+            } else {
+                hasPrev = true;
+            }
+            prevIndex = keyIndex;
 
             // Check this key is a valid signer
             if ((config.signerBitmap & (1 << keyIndex)) == 0) {
@@ -695,6 +779,26 @@ contract GenericKeyManager {
         uint64 removableAt = config.removalTimestamp;
         require(removableAt != 0 && removableAt <= block.timestamp, MultisigRemovalUnavailable(removableAt));
 
+        // Remove back-references for each key that was in this multisig
+        uint256 signerBitmap = config.signerBitmap;
+        for (uint256 i = 0; i < keyHashes[account].length; i++) {
+            if ((signerBitmap & (1 << i)) != 0) {
+                bytes32 keyHash = keyHashes[account][i];
+
+                // Remove back-reference to this multisig from the key
+                bytes32[] storage list = _multisigsUsingKey[account][keyHash];
+                for (uint256 j = 0; j < list.length; j++) {
+                    if (list[j] == multisigHash) {
+                        if (j < list.length - 1) {
+                            list[j] = list[list.length - 1];
+                        }
+                        list.pop();
+                        break;
+                    }
+                }
+            }
+        }
+
         // Get the multisig's index (1-based) and convert to 0-based
         uint256 index = uint256(config.index) - 1;
         bytes32[] storage accountMultisigHashes = multisigHashes[account];
@@ -735,6 +839,34 @@ contract GenericKeyManager {
     function getMultisig(address account, bytes32 multisigHash) external view returns (MultisigConfig memory config) {
         require(_multisigExists(account, multisigHash), MultisigNotRegistered(account, multisigHash));
         return multisigs[account][multisigHash];
+    }
+
+    /**
+     * @notice Get the current authorized key hashes for a multisig
+     * @param account The account address
+     * @param multisigHash The multisig hash
+     * @return authorizedKeyHashes Array of key hashes that are currently authorized signers for this multisig
+     */
+    function getAuthorizedKeyHashesForMultisig(address account, bytes32 multisigHash)
+        external
+        view
+        returns (bytes32[] memory authorizedKeyHashes)
+    {
+        require(_multisigExists(account, multisigHash), MultisigNotRegistered(account, multisigHash));
+
+        MultisigConfig storage config = multisigs[account][multisigHash];
+        bytes32[] storage accountKeyHashes = keyHashes[account];
+
+        // Single pass with dynamic array builder
+        DynamicArrayLib.DynamicArray memory results;
+        uint256 maxLen = accountKeyHashes.length;
+        if (maxLen > 256) maxLen = 256; // signerBitmap is 256 bits
+        for (uint256 i = 0; i < maxLen; i++) {
+            if ((config.signerBitmap & (1 << i)) != 0) {
+                results.p(accountKeyHashes[i]);
+            }
+        }
+        authorizedKeyHashes = results.asBytes32Array();
     }
 
     /**
@@ -786,12 +918,24 @@ contract GenericKeyManager {
     }
 
     /**
-     * @notice Computes the hash of a multisig configuration
-     * @param config The multisig configuration
-     * @return multisigHash The hash of the configuration
+     * @notice Computes a stable identity hash for a multisig configuration
+     * @dev Uses the set of authorized key hashes (order-independent), threshold, signerCount, and resetPeriod.
+     *      This remains stable even if key indices shift.
+     * @param authorizedKeyHashes The array of authorized key hashes
+     * @param threshold The number of signatures required
+     * @param signerCount Total number of signers
+     * @param resetPeriod The reset period of the multisig
+     * @return multisigHash The identity hash of the configuration
      */
-    function _computeMultisigHash(MultisigConfig memory config) internal pure returns (bytes32 multisigHash) {
-        return keccak256(abi.encode(config.signerBitmap, config.threshold, config.signerCount, config.resetPeriod));
+    function _computeMultisigIdentityHash(
+        bytes32[] memory authorizedKeyHashes,
+        uint8 threshold,
+        uint8 signerCount,
+        ResetPeriod resetPeriod
+    ) internal pure returns (bytes32 multisigHash) {
+        // Sort the hashes to make the identity hash order-independent (using solady's LibSort)
+        LibSort.sort(authorizedKeyHashes);
+        return keccak256(abi.encode(authorizedKeyHashes, threshold, signerCount, resetPeriod));
     }
 
     /**
@@ -802,5 +946,25 @@ contract GenericKeyManager {
      */
     function _multisigExists(address account, bytes32 multisigHash) internal view returns (bool exists) {
         return multisigs[account][multisigHash].index != 0;
+    }
+
+    /**
+     * @notice Get number of active multisigs using a specific key
+     * @param account The account address
+     * @param keyHash The key hash
+     * @return count Number of multisigs using this key
+     */
+    function getKeyUsageCount(address account, bytes32 keyHash) external view returns (uint256 count) {
+        return _multisigsUsingKey[account][keyHash].length;
+    }
+
+    /**
+     * @notice Check if a key can be safely removed
+     * @param account The account address
+     * @param keyHash The key hash
+     * @return canRemove True if the key is not used in any active multisigs
+     */
+    function canSafelyRemoveKey(address account, bytes32 keyHash) external view returns (bool canRemove) {
+        return _multisigsUsingKey[account][keyHash].length == 0;
     }
 }

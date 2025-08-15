@@ -262,6 +262,57 @@ contract GenericKeyManagerTest is Test {
         keyManager.registerKey(alice, secp256k1Key.keyType, secp256k1Key.publicKey, secp256k1Key.resetPeriod);
     }
 
+    function test_RegisterKey_WithAccountParam_Authorized() public {
+        vm.prank(alice);
+        bytes32 keyHash = keyManager.registerKey(alice, KeyType.Secp256k1, abi.encode(alice), ResetPeriod.OneDay);
+        assertTrue(keyManager.isKeyRegistered(alice, keyHash));
+    }
+
+    function test_RegisterKey_WithAccountParam_Unauthorized() public {
+        vm.expectRevert(abi.encodeWithSelector(GenericKeyManager.UnauthorizedKeyManagement.selector, bob, alice));
+        vm.prank(bob);
+        keyManager.registerKey(alice, KeyType.Secp256k1, abi.encode(alice), ResetPeriod.OneDay);
+    }
+
+    function test_ScheduleKeyRemoval_WithAccountParam_Authorized() public {
+        vm.prank(alice);
+        bytes32 h = keyManager.registerKey(KeyType.Secp256k1, abi.encode(alice), ResetPeriod.OneDay);
+        vm.warp(100);
+        vm.prank(alice);
+        uint256 t = keyManager.scheduleKeyRemoval(alice, h);
+        assertGt(t, 100);
+    }
+
+    function test_ScheduleKeyRemoval_WithAccountParam_Unauthorized() public {
+        vm.prank(alice);
+        bytes32 h = keyManager.registerKey(KeyType.Secp256k1, abi.encode(alice), ResetPeriod.OneDay);
+        vm.expectRevert(abi.encodeWithSelector(GenericKeyManager.UnauthorizedKeyManagement.selector, bob, alice));
+        vm.prank(bob);
+        keyManager.scheduleKeyRemoval(alice, h);
+    }
+
+    function test_RemoveKey_WithAccountParam_Authorized() public {
+        vm.prank(alice);
+        bytes32 h = keyManager.registerKey(KeyType.Secp256k1, abi.encode(alice), ResetPeriod.OneDay);
+        vm.prank(alice);
+        uint256 removableAt = keyManager.scheduleKeyRemoval(alice, h);
+        vm.warp(removableAt + 1);
+        vm.prank(alice);
+        keyManager.removeKey(alice, h);
+        assertFalse(keyManager.isKeyRegistered(alice, h));
+    }
+
+    function test_RemoveKey_WithAccountParam_Unauthorized() public {
+        vm.prank(alice);
+        bytes32 h = keyManager.registerKey(KeyType.Secp256k1, abi.encode(alice), ResetPeriod.OneDay);
+        vm.prank(alice);
+        uint256 removableAt = keyManager.scheduleKeyRemoval(alice, h);
+        vm.warp(removableAt + 1);
+        vm.expectRevert(abi.encodeWithSelector(GenericKeyManager.UnauthorizedKeyManagement.selector, bob, alice));
+        vm.prank(bob);
+        keyManager.removeKey(alice, h);
+    }
+
     function test_BaseKeyVerifier_SignatureVerification() public {
         // Register a key for Alice
         vm.prank(alice);
