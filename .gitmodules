@@ -7,3 +7,10 @@
 [submodule "lib/forge-gas-snapshot"]
 	path = lib/forge-gas-snapshot
 	url = https://github.com/marktoda/forge-gas-snapshot
+[submodule "lib/the-compact"]
+	path = lib/the-compact
+	url = https://github.com/uniswap/the-compact
+	branch = v1
+[submodule "lib/solady"]
+	path = lib/solady
+	url = https://github.com/vectorized/solady
