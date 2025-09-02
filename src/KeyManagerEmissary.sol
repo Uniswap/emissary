@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.27;
+pragma solidity ^0.8.30;
 
 import {DynamicArrayLib} from 'lib/solady/src/utils/DynamicArrayLib.sol';
 import {IEmissary} from 'lib/the-compact/src/interfaces/IEmissary.sol';
