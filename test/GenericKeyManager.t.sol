@@ -283,6 +283,18 @@ contract GenericKeyManagerTest is Test {
         assertGt(t, 100);
     }
 
+    function test_RevertWhen_SchedulingKeyRemovalWhilePending_WithAccountParam() public {
+        vm.prank(alice);
+        bytes32 h = keyManager.registerKey(KeyType.Secp256k1, abi.encode(alice), ResetPeriod.OneDay);
+        vm.warp(100);
+        vm.prank(alice);
+        uint256 t = keyManager.scheduleKeyRemoval(alice, h);
+        // Re-scheduling must revert with existing schedule timestamp
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(GenericKeyManager.KeyRemovalAlreadyScheduled.selector, alice, h, t));
+        keyManager.scheduleKeyRemoval(alice, h);
+    }
+
     function test_ScheduleKeyRemoval_WithAccountParam_Unauthorized() public {
         vm.prank(alice);
         bytes32 h = keyManager.registerKey(KeyType.Secp256k1, abi.encode(alice), ResetPeriod.OneDay);
@@ -743,6 +755,28 @@ contract GenericKeyManagerTest is Test {
 
         // Should not be removable yet
         assertFalse(keyManager.canRemoveMultisig(alice, multisigHash));
+    }
+
+    function test_RevertWhen_SchedulingMultisigRemovalWhilePending() public {
+        _setupMultisigKeys();
+
+        uint16[] memory signerIndices = new uint16[](2);
+        signerIndices[0] = 0;
+        signerIndices[1] = 1;
+
+        vm.prank(alice);
+        bytes32 multisigHash = keyManager.registerMultisig(2, signerIndices, ResetPeriod.SevenDaysAndOneHour);
+
+        vm.prank(alice);
+        uint256 firstRemoval = keyManager.scheduleMultisigRemoval(multisigHash);
+
+        vm.prank(alice);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                GenericKeyManager.MultisigRemovalAlreadyScheduled.selector, alice, multisigHash, firstRemoval
+            )
+        );
+        keyManager.scheduleMultisigRemoval(multisigHash);
     }
 
     function test_RemoveMultisig() public {
