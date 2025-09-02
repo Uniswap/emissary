@@ -559,11 +559,12 @@ contract GenericKeyManager {
         uint16[] calldata signerIndices,
         ResetPeriod resetPeriod
     ) internal returns (bytes32 multisigHash) {
-        // Validate inputs
-        uint8 signerCount = uint8(signerIndices.length);
+        // Validate inputs (validate length before casting to avoid truncation)
+        uint256 signerCountUnchecked = signerIndices.length;
+        require(signerCountUnchecked > 0 && signerCountUnchecked <= 255, InvalidMultisigConfig('Invalid signer count'));
+        uint8 signerCount = uint8(signerCountUnchecked);
         require(threshold > 0 && threshold <= signerCount, InvalidMultisigConfig('Invalid threshold'));
-        require(signerCount > 0 && signerCount <= 255, InvalidMultisigConfig('Invalid signer count'));
-        require(signerIndices.length <= keyHashes[account].length, InvalidMultisigConfig('Signer index out of bounds'));
+        require(signerCountUnchecked <= keyHashes[account].length, InvalidMultisigConfig('Signer index out of bounds'));
 
         // Create bitmap from signer indices
         uint256 signerBitmap = 0;
@@ -608,13 +609,17 @@ contract GenericKeyManager {
         multisigs[account][multisigHash] = config;
 
         // Track back-references for each key used in this multisig
+        _trackBackReferences(account, signerIndices, multisigHash);
+
+        emit MultisigRegistered(account, multisigHash, threshold, signerCount, resetPeriod);
+    }
+
+    function _trackBackReferences(address account, uint16[] calldata signerIndices, bytes32 multisigHash) internal {
         for (uint256 i = 0; i < signerIndices.length; i++) {
             uint16 sIdx = signerIndices[i];
             bytes32 sKeyHash = keyHashes[account][sIdx];
             _multisigsUsingKey[account][sKeyHash].push(multisigHash);
         }
-
-        emit MultisigRegistered(account, multisigHash, threshold, signerCount, resetPeriod);
     }
 
     /**
