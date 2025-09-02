@@ -527,6 +527,29 @@ contract GenericKeyManagerTest is Test {
         }
     }
 
+    function test_RevertWhen_RegisterMultisig_WithTooManySigners() public {
+        // Ensure Alice has >= 256 keys registered
+        uint256 existing = keyManager.getKeyCount(alice);
+        for (uint256 i = existing; i < 256; i++) {
+            vm.prank(alice);
+            keyManager.registerKey(
+                KeyType.Secp256k1, abi.encode(makeAddr(string(abi.encodePacked('user', i)))), ResetPeriod.OneDay
+            );
+        }
+
+        // Build signer indices array of length 256
+        uint16[] memory signerIndices = new uint16[](256);
+        for (uint16 i = 0; i < 256; i++) {
+            signerIndices[i] = i;
+        }
+
+        vm.prank(alice);
+        vm.expectRevert(
+            abi.encodeWithSelector(GenericKeyManager.InvalidMultisigConfig.selector, 'Invalid signer count')
+        );
+        keyManager.registerMultisig(128, signerIndices, ResetPeriod.SevenDaysAndOneHour);
+    }
+
     function test_RegisterMultisig_InvalidThreshold() public {
         _setupMultisigKeys();
 
