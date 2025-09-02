@@ -1,5 +1,5 @@
 # GenericKeyManager
-[Git Source](https://github.com/Uniswap/emissary/blob/1ac03c1d6722b8d35811b42c25b02aaaf4b09e4b/src/GenericKeyManager.sol)
+[Git Source](https://github.com/Uniswap/emissary/blob/3e69f41ed9c55ded3a9bd321ec547b3d0143204c/src/GenericKeyManager.sol)
 
 A generic key management contract that provides core functionality
 
@@ -594,6 +594,13 @@ function _registerMultisig(address account, uint8 threshold, uint16[] calldata s
 |----|----|-----------|
 |`multisigHash`|`bytes32`|The hash of the registered multisig|
 
+
+### _trackBackReferences
+
+
+```solidity
+function _trackBackReferences(address account, uint16[] calldata signerIndices, bytes32 multisigHash) internal;
+```
 
 ### verifyMultisigSignature
 

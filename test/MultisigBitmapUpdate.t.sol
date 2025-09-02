@@ -66,9 +66,9 @@ contract MultisigBitmapUpdateTest is Test {
     function test_UpdateBitmap_WhenLastSignerMoves_OnRemovalOfNonSigner() public {
         // Order: [A, B, C, D]; make D a signer, remove A -> D moves to index 0
         bytes32 hA = _register(owner, addrA); // idx 0
-        bytes32 hB = _register(owner, addrB); // idx 1
-        bytes32 hC = _register(owner, addrC); // idx 2
-        bytes32 hD = _register(owner, addrD); // idx 3 (last)
+        _register(owner, addrB); // idx 1
+        _register(owner, addrC); // idx 2
+        _register(owner, addrD); // idx 3 (last)
 
         uint16[] memory signers = new uint16[](1);
         signers[0] = 3; // D
