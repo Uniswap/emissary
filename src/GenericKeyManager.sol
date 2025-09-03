@@ -41,6 +41,9 @@ struct MultisigSignature {
  * protocol-specific verification logic.
  */
 contract GenericKeyManager {
+    /// @notice Maximum number of keys allowed per account (due to 256-bit signer bitmap)
+    uint256 public constant MAX_KEYS_PER_ACCOUNT = 256;
+
     using KeyLib for Key;
     using IdLib for ResetPeriod;
     using DynamicArrayLib for DynamicArrayLib.DynamicArray;
@@ -136,6 +139,11 @@ contract GenericKeyManager {
     /// @param multisigHash The multisig hash
     error MultisigAlreadyRegistered(address account, bytes32 multisigHash);
 
+    /// @notice Thrown when registering a key would exceed capacity per account
+    /// @param account The account address
+    /// @param attemptedCount The attempted total number of keys
+    error MaxKeysPerAccountExceeded(address account, uint256 attemptedCount);
+
     /// @notice Thrown when a multisig is not registered
     /// @param account The account address
     /// @param multisigHash The multisig hash
@@ -209,10 +217,14 @@ contract GenericKeyManager {
         require(key.isValidKey(), InvalidKey(keyHash));
         require(!_keyExists(account, keyHash), KeyAlreadyRegistered(account, keyHash));
 
+        // Compute next 1-based index and validate capacity
+        uint256 nextIndex = keyHashes[account].length + 1;
+        require(nextIndex <= MAX_KEYS_PER_ACCOUNT, MaxKeysPerAccountExceeded(account, nextIndex));
+
         // Add to key hashes list and get the new index
         keyHashes[account].push(keyHash);
         // We use a 1-based index (0 means unregistered)
-        uint16 newIndex = uint16(keyHashes[account].length);
+        uint16 newIndex = uint16(nextIndex);
 
         // Update the key with the correct index and store it
         key.index = newIndex;
