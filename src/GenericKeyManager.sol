@@ -527,7 +527,6 @@ contract GenericKeyManager {
         uint16[] calldata signerIndices,
         ResetPeriod resetPeriod
     ) external returns (bytes32 multisigHash) {
-        _checkKeyManagementAuthorization(account);
         return _registerMultisig(account, threshold, signerIndices, resetPeriod);
     }
 
@@ -559,6 +558,8 @@ contract GenericKeyManager {
         uint16[] calldata signerIndices,
         ResetPeriod resetPeriod
     ) internal returns (bytes32 multisigHash) {
+        _checkKeyManagementAuthorization(account);
+
         // Validate inputs
         uint8 signerCount = uint8(signerIndices.length);
         require(threshold > 0 && threshold <= signerCount, InvalidMultisigConfig('Invalid threshold'));
