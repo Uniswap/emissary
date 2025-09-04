@@ -145,6 +145,11 @@ library KeyLib {
         if (key.keyType == KeyType.Secp256k1) {
             // For Secp256k1, publicKey should be an encoded address
             if (key.publicKey.length != 32) return false;
+
+            // Validate upper 12 bytes are zeros in alignment with canonical address encoding
+            bytes32 raw = bytes32(key.publicKey);
+            if (uint96(uint256(raw >> 160)) != 0) return false;
+
             address addr = abi.decode(key.publicKey, (address));
             return addr != address(0);
         } else if (key.keyType == KeyType.P256) {

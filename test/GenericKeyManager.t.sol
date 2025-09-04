@@ -153,6 +153,23 @@ contract GenericKeyManagerTest is Test {
         keyManager.registerKey(secp256k1Key.keyType, secp256k1Key.publicKey, secp256k1Key.resetPeriod);
     }
 
+    function test_revert_RegisterKey_Secp256k1_NonZeroUpperBytes() public {
+        // Construct a 32-byte payload where upper 12 bytes are non-zero, lower 20 hold an address
+        address a = makeAddr('upperbytes');
+        bytes32 bad;
+        // set upper 12 bytes to non-zero, keep lower 20 bytes as address
+        bad = bytes32(uint256((uint256(0xFFFFFFFFFFFFFFFFFFFFFFFF) << 160) | uint256(uint160(a))));
+        bytes memory malformed = abi.encodePacked(bad);
+
+        vm.prank(alice);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                GenericKeyManager.InvalidKey.selector, keccak256(abi.encode(KeyType.Secp256k1, malformed))
+            )
+        );
+        keyManager.registerKey(KeyType.Secp256k1, malformed, ResetPeriod.OneDay);
+    }
+
     function test_KeyManager_ScheduleKeyRemoval() public {
         vm.prank(alice);
         bytes32 keyHash = keyManager.registerKey(secp256k1Key.keyType, secp256k1Key.publicKey, secp256k1Key.resetPeriod);
