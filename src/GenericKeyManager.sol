@@ -281,6 +281,8 @@ contract GenericKeyManager {
     }
 
     function _removeKey(address account, bytes32 keyHash) internal {
+        // Check if the key exists and the caller is authorized to manage keys for the account
+        require(_keyExists(account, keyHash), KeyNotRegistered(account, keyHash));
         _checkKeyManagementAuthorization(account);
 
         // Check if key is still used in any multisigs

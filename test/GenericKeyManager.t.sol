@@ -302,6 +302,13 @@ contract GenericKeyManagerTest is Test {
         assertFalse(keyManager.isKeyRegistered(alice, h));
     }
 
+    function test_revert_RemoveKey_KeyNotRegistered() public {
+        bytes32 keyHash = keccak256("notRegistered");
+        vm.expectRevert(abi.encodeWithSelector(GenericKeyManager.KeyNotRegistered.selector, alice, keyHash));
+        vm.prank(alice);
+        keyManager.removeKey(alice, keyHash);
+    }
+
     function test_RemoveKey_WithAccountParam_Unauthorized() public {
         vm.prank(alice);
         bytes32 h = keyManager.registerKey(KeyType.Secp256k1, abi.encode(alice), ResetPeriod.OneDay);
