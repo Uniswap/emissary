@@ -284,9 +284,7 @@ contract GenericKeyManager {
 
         // Check if key is still used in any multisigs
         uint256 usageCount = _multisigsUsingKey[account][keyHash].length;
-        if (usageCount > 0) {
-            revert KeyStillInUse(keyHash, usageCount);
-        }
+        require(usageCount == 0, KeyStillInUse(keyHash, usageCount));
 
         // Check if removal has been properly scheduled and timelock has expired
         Key storage key = keys[account][keyHash];
@@ -307,9 +305,7 @@ contract GenericKeyManager {
                 uint16 oldIndex = uint16(accountKeyHashes.length - 1);
 
                 // Range check before any bit shifting
-                if (newIndex >= MAX_KEYS_PER_ACCOUNT || oldIndex >= MAX_KEYS_PER_ACCOUNT) {
-                    revert MultisigSignerIndexOutOfRange(newIndex);
-                }
+                require(newIndex < MAX_KEYS_PER_ACCOUNT && oldIndex < MAX_KEYS_PER_ACCOUNT, MultisigSignerIndexOutOfRange(newIndex));
 
                 bytes32[] storage usingMultisigs = _multisigsUsingKey[account][lastKeyHash];
                 for (uint256 m = 0; m < usingMultisigs.length; m++) {
@@ -318,9 +314,7 @@ contract GenericKeyManager {
                     MultisigConfig storage cfg = multisigs[account][msHash];
 
                     // Collision check
-                    if ((cfg.signerBitmap & (1 << newIndex)) != 0) {
-                        revert MultisigSignerIndexCollision(msHash, newIndex);
-                    }
+                    require((cfg.signerBitmap & (1 << newIndex)) == 0, MultisigSignerIndexCollision(msHash, newIndex));
 
                     // Move the signer bit from oldIndex to newIndex
                     cfg.signerBitmap = (cfg.signerBitmap & ~(1 << oldIndex)) | (1 << newIndex);
@@ -576,7 +570,7 @@ contract GenericKeyManager {
             uint16 index = signerIndices[i];
             require(index < keyHashes[account].length, InvalidMultisigConfig('Signer index out of bounds'));
             require((signerBitmap & (1 << index)) == 0, InvalidMultisigConfig('Duplicate signer index'));
-            if (index >= MAX_KEYS_PER_ACCOUNT) revert MultisigSignerIndexOutOfRange(index);
+            require(index < MAX_KEYS_PER_ACCOUNT, MultisigSignerIndexOutOfRange(index));
 
             // Verify the key exists
             bytes32 keyHash = keyHashes[account][index];
