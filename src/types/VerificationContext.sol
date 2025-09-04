@@ -6,6 +6,7 @@ pragma solidity >=0.8.0;
  * @notice Struct for passing protocol-specific verification context data
  * @dev This allows protocols to define their own verification requirements
  * while using the same key management infrastructure
+ * @custom:security-contact security@uniswap.org
  */
 struct VerificationContext {
     /// @notice Protocol identifier to distinguish between different protocols

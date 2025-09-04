@@ -8,14 +8,15 @@ import {Base64} from 'solady/utils/Base64.sol';
 import {ECDSA} from 'solady/utils/ECDSA.sol';
 import {P256} from 'solady/utils/P256.sol';
 import {WebAuthn} from 'solady/utils/WebAuthn.sol';
+
+import {IdLib} from 'the-compact/lib/IdLib.sol';
+import {IEmissary} from 'the-compact/interfaces/IEmissary.sol';
+import {ResetPeriod} from 'the-compact/types/ResetPeriod.sol';
+
 import {BaseKeyVerifier} from 'src/BaseKeyVerifier.sol';
 import {GenericKeyManager} from 'src/GenericKeyManager.sol';
 import {Key, KeyLib, KeyType} from 'src/KeyLib.sol';
 import {KeyManagerEmissary} from 'src/KeyManagerEmissary.sol';
-
-import {IEmissary} from 'the-compact/interfaces/IEmissary.sol';
-import {IdLib} from 'the-compact/lib/IdLib.sol';
-import {ResetPeriod} from 'the-compact/types/ResetPeriod.sol';
 
 contract KeyManagerEmissaryTest is Test, P256VerifierEtcher {
     using KeyLib for Key;

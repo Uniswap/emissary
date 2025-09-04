@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.30;
 
-import {IERC1271} from './interfaces/IERC1271.sol';
-import {ECDSA} from 'lib/solady/src/utils/ECDSA.sol';
-import {EfficientHashLib} from 'lib/solady/src/utils/EfficientHashLib.sol';
-import {P256} from 'lib/solady/src/utils/P256.sol';
-
-import {WebAuthn} from 'lib/solady/src/utils/WebAuthn.sol';
-import {ResetPeriod} from 'lib/the-compact/src/types/ResetPeriod.sol';
+import {IERC1271} from 'permit2/src/interfaces/IERC1271.sol';
+import {ECDSA} from 'solady/utils/ECDSA.sol';
+import {EfficientHashLib} from 'solady/utils/EfficientHashLib.sol';
+import {P256} from 'solady/utils/P256.sol';
+import {WebAuthn} from 'solady/utils/WebAuthn.sol';
+import {ResetPeriod} from 'the-compact/types/ResetPeriod.sol';
 
 /// @notice The type of key supported by the emissary
 enum KeyType {
@@ -30,8 +29,12 @@ struct Key {
     bytes publicKey;
 }
 
-/// @notice Library for key management and signature verification
-/// @dev Adapted from Uniswap Calibur 7702 wallet implementation
+/**
+ * @title KeyLib
+ * @notice Library for key management and signature verification
+ * @dev Adapted from Uniswap Calibur 7702 wallet implementation
+ * @custom:security-contact security@uniswap.org
+ */
 library KeyLib {
     /**
      * @notice Hashes a key to create a unique identifier

@@ -2,8 +2,8 @@
 pragma solidity ^0.8.30;
 
 import {Key, KeyLib, KeyType} from './KeyLib.sol';
-import {IdLib} from 'lib/the-compact/src/lib/IdLib.sol';
-import {ResetPeriod} from 'lib/the-compact/src/types/ResetPeriod.sol';
+import {IdLib} from 'the-compact/lib/IdLib.sol';
+import {ResetPeriod} from 'the-compact/types/ResetPeriod.sol';
 import {DynamicArrayLib} from 'solady/utils/DynamicArrayLib.sol';
 import {LibSort} from 'solady/utils/LibSort.sol';
 
@@ -39,6 +39,7 @@ struct MultisigSignature {
  * @dev This contract handles key registration, removal, and timelock mechanisms
  * while being protocol-agnostic. Other contracts can inherit from this to add
  * protocol-specific verification logic.
+ * @custom:security-contact security@uniswap.org
  */
 contract GenericKeyManager {
     using KeyLib for Key;
