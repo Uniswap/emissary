@@ -1,10 +1,13 @@
 # ISignatureVerifier
-[Git Source](https://github.com/Uniswap/emissary/blob/338b5651e3672b8603d73d0f0092a62f1841b4f8/src/interfaces/ISignatureVerifier.sol)
+[Git Source](https://github.com/Uniswap/emissary/blob/73d4c334089f173fa867450ba717f1216afcec61/src/interfaces/ISignatureVerifier.sol)
 
 Generic interface for signature verification across different protocols
 
 *This interface allows protocols to define their own verification logic
 while using the same underlying key management infrastructure*
+
+**Note:**
+security-contact: security@uniswap.org
 
 
 ## Functions

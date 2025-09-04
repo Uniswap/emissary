@@ -3,7 +3,8 @@ pragma solidity ^0.8.27;
 
 import {Test} from 'forge-std/Test.sol';
 
-import {ResetPeriod} from 'lib/the-compact/src/types/ResetPeriod.sol';
+import {ResetPeriod} from 'the-compact/types/ResetPeriod.sol';
+
 import {GenericKeyManager, MultisigConfig, MultisigSignature} from 'src/GenericKeyManager.sol';
 import {Key, KeyLib, KeyType} from 'src/KeyLib.sol';
 

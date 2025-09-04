@@ -14,6 +14,7 @@ import {VerificationContext} from './types/VerificationContext.sol';
 /**
  * @title KeyManagerEmissary
  * @notice A Compact-specific adapter that implements IEmissary using the generic key management foundation
+ * @custom:security-contact security@uniswap.org
  */
 contract KeyManagerEmissary is BaseKeyVerifier, IEmissary {
     using IdLib for bytes12;

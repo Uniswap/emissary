@@ -1,5 +1,5 @@
 # BaseKeyVerifier
-[Git Source](https://github.com/Uniswap/emissary/blob/026379c337c2c643aa148c4bc9f4bfba296a3b4a/src/BaseKeyVerifier.sol)
+[Git Source](https://github.com/Uniswap/emissary/blob/73d4c334089f173fa867450ba717f1216afcec61/src/BaseKeyVerifier.sol)
 
 **Inherits:**
 [GenericKeyManager](/src/GenericKeyManager.sol/contract.GenericKeyManager.md), [ISignatureVerifier](/src/interfaces/ISignatureVerifier.sol/interface.ISignatureVerifier.md)
@@ -8,6 +8,9 @@ A base contract that implements ISignatureVerifier with common verification patt
 
 *This contract provides a foundation for protocols to build upon by combining
 key management with signature verification functionality*
+
+**Note:**
+security-contact: security@uniswap.org
 
 
 ## State Variables

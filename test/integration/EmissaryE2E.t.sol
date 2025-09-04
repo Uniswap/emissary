@@ -1,21 +1,22 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.30;
 
-import {Setup} from 'lib/the-compact/test/integration/Setup.sol';
 import {P256VerifierEtcher} from 'test/helpers/P256VerifierEtcher.sol';
 
+import {BaseKeyVerifier} from 'src/BaseKeyVerifier.sol';
 import {Key, KeyLib, KeyType} from 'src/KeyLib.sol';
 import {KeyManagerEmissary} from 'src/KeyManagerEmissary.sol';
 
 import {MockERC1271Wallet} from 'lib/solady/test/utils/mocks/MockERC1271Wallet.sol';
-import {ITheCompact} from 'lib/the-compact/src/interfaces/ITheCompact.sol';
-import {Claim} from 'lib/the-compact/src/types/Claims.sol';
-import {Component} from 'lib/the-compact/src/types/Components.sol';
-import {ResetPeriod} from 'lib/the-compact/src/types/ResetPeriod.sol';
-import {Scope} from 'lib/the-compact/src/types/Scope.sol';
+import {Setup} from 'lib/the-compact/test/integration/Setup.sol';
 import {CreateClaimHashWithWitnessArgs} from 'lib/the-compact/test/integration/TestHelperStructs.sol';
+
 import {P256} from 'solady/utils/P256.sol';
-import {BaseKeyVerifier} from 'src/BaseKeyVerifier.sol';
+import {ITheCompact} from 'the-compact/interfaces/ITheCompact.sol';
+import {Claim} from 'the-compact/types/Claims.sol';
+import {Component} from 'the-compact/types/Components.sol';
+import {ResetPeriod} from 'the-compact/types/ResetPeriod.sol';
+import {Scope} from 'the-compact/types/Scope.sol';
 
 contract EmissaryE2E is Setup, P256VerifierEtcher {
     using KeyLib for Key;

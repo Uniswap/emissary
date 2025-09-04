@@ -6,6 +6,7 @@ pragma solidity >=0.8.0;
  * @notice Generic interface for signature verification across different protocols
  * @dev This interface allows protocols to define their own verification logic
  * while using the same underlying key management infrastructure
+ * @custom:security-contact security@uniswap.org
  */
 interface ISignatureVerifier {
     /**
