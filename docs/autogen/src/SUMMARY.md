@@ -2,7 +2,6 @@
 - [Home](README.md)
 # src
   - [❱ interfaces](src/interfaces/README.md)
-    - [IERC1271](src/interfaces/IERC1271.sol/interface.IERC1271.md)
     - [ISignatureVerifier](src/interfaces/ISignatureVerifier.sol/interface.ISignatureVerifier.md)
   - [❱ types](src/types/README.md)
     - [VerificationContext](src/types/VerificationContext.sol/struct.VerificationContext.md)
