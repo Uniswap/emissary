@@ -36,6 +36,9 @@ struct Key {
  * @custom:security-contact security@uniswap.org
  */
 library KeyLib {
+    uint256 internal constant P256_P = 0xFFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF;
+    uint256 internal constant P256_B = 0x5AC635D8AA3A93E7B3EBBD55769886BC651D06B0CC53B0F63BCE3C3E27D2604B;
+
     /**
      * @notice Hashes a key to create a unique identifier
      * @param key The key to hash
@@ -153,10 +156,10 @@ library KeyLib {
             address addr = abi.decode(key.publicKey, (address));
             return addr != address(0);
         } else if (key.keyType == KeyType.P256) {
-            // For P256, publicKey should be encoded (x, y) coordinates
+            // For P256, publicKey should be encoded (x, y) coordinates and lie on the curve.
             if (key.publicKey.length != 64) return false;
             (bytes32 x, bytes32 y) = abi.decode(key.publicKey, (bytes32, bytes32));
-            return x != bytes32(0) && y != bytes32(0);
+            return _p256IsOnCurve(x, y);
         } else if (key.keyType == KeyType.WebAuthnP256) {
             // For WebAuthnP256, publicKey should be encoded (x, y) coordinates as uint256
             if (key.publicKey.length != 64) return false;
@@ -206,5 +209,29 @@ library KeyLib {
         key.resetPeriod = resetPeriod;
         key.publicKey = abi.encode(x, y);
         return key;
+    }
+
+    /**
+     * @notice Checks if a P256 point is on the curve
+     * @param xBytes The x coordinate of the P256 point
+     * @param yBytes The y coordinate of the P256 point
+     * @return True if the point is on the curve
+     * @dev a = -3 mod p is handled via subtraction; we use x^3 - 3x + b form
+     */
+    function _p256IsOnCurve(bytes32 xBytes, bytes32 yBytes) internal pure returns (bool) {
+        uint256 x = uint256(xBytes);
+        uint256 y = uint256(yBytes);
+        // Reject coordinates outside field and the point at infinity representation (0,0)
+        if (x >= P256_P || y >= P256_P) return false;
+        if (x == 0 && y == 0) return false;
+
+        // y^2 mod p
+        uint256 lhs = mulmod(y, y, P256_P);
+        // x^3 - 3x + b mod p
+        uint256 x2 = mulmod(x, x, P256_P);
+        uint256 x3 = mulmod(x2, x, P256_P);
+        uint256 threeX = mulmod(3, x, P256_P);
+        uint256 rhs = addmod(addmod(x3, P256_P - threeX, P256_P), P256_B, P256_P);
+        return lhs == rhs;
     }
 }

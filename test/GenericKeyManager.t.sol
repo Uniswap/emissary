@@ -3,6 +3,7 @@ pragma solidity ^0.8.27;
 
 import {Test} from 'forge-std/Test.sol';
 
+import {P256} from 'solady/utils/P256.sol';
 import {ResetPeriod} from 'the-compact/types/ResetPeriod.sol';
 
 import {BaseKeyVerifier} from 'src/BaseKeyVerifier.sol';
@@ -61,17 +62,18 @@ contract GenericKeyManagerTest is Test {
             publicKey: abi.encode(alice)
         });
 
-        // P256 key (dummy coordinates)
-        p256Key = Key({
-            keyType: KeyType.P256,
-            resetPeriod: ResetPeriod.OneHourAndFiveMinutes,
-            removalTimestamp: 0,
-            index: 0,
-            publicKey: abi.encode(
-                bytes32(0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef),
-                bytes32(0xfedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321)
-            )
-        });
+        // P256 key (valid coordinates)
+        {
+            uint256 sk = _bound(uint256(keccak256('gkm_p256_fixture')), 1, P256.N - 1);
+            (uint256 xU, uint256 yU) = vm.publicKeyP256(sk);
+            p256Key = Key({
+                keyType: KeyType.P256,
+                resetPeriod: ResetPeriod.OneHourAndFiveMinutes,
+                removalTimestamp: 0,
+                index: 0,
+                publicKey: abi.encode(bytes32(xU), bytes32(yU))
+            });
+        }
 
         // WebAuthn key (dummy coordinates)
         webauthnKey = Key({
@@ -168,6 +170,41 @@ contract GenericKeyManagerTest is Test {
             )
         );
         keyManager.registerKey(KeyType.Secp256k1, malformed, ResetPeriod.OneDay);
+    }
+
+    function test_revert_RegisterKey_P256_OffCurve() public {
+        // Construct a likely off-curve point by tweaking random x,y
+        bytes32 x = 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef;
+        bytes32 y = 0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890;
+        bytes memory pk = abi.encode(x, y);
+        bytes32 keyHash = keccak256(abi.encode(KeyType.P256, pk));
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(GenericKeyManager.InvalidKey.selector, keyHash));
+        keyManager.registerKey(KeyType.P256, pk, ResetPeriod.OneDay);
+    }
+
+    function test_revert_RegisterKey_P256_OutOfField() public {
+        // x >= p (use p itself), y within range but not matching curve equation
+        bytes32 xp = bytes32(uint256(0xFFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF));
+        bytes32 y = bytes32(uint256(1));
+        bytes memory pk = abi.encode(xp, y);
+        bytes32 keyHash = keccak256(abi.encode(KeyType.P256, pk));
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(GenericKeyManager.InvalidKey.selector, keyHash));
+        keyManager.registerKey(KeyType.P256, pk, ResetPeriod.OneDay);
+    }
+
+    function test_revert_RegisterKey_P256_PointAtInfinity() public {
+        bytes32 x0 = bytes32(0);
+        bytes32 y0 = bytes32(0);
+        bytes memory pk = abi.encode(x0, y0);
+        bytes32 keyHash = keccak256(abi.encode(KeyType.P256, pk));
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(GenericKeyManager.InvalidKey.selector, keyHash));
+        keyManager.registerKey(KeyType.P256, pk, ResetPeriod.OneDay);
     }
 
     function test_KeyManager_ScheduleKeyRemoval() public {
