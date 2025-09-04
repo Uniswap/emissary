@@ -306,7 +306,8 @@ contract GenericKeyManager {
                 uint16 oldIndex = uint16(accountKeyHashes.length - 1);
 
                 // Range check before any bit shifting
-                require(newIndex < MAX_KEYS_PER_ACCOUNT && oldIndex < MAX_KEYS_PER_ACCOUNT, MultisigSignerIndexOutOfRange(newIndex));
+                require(newIndex < MAX_KEYS_PER_ACCOUNT, MultisigSignerIndexOutOfRange(newIndex));
+                require(oldIndex < MAX_KEYS_PER_ACCOUNT, MultisigSignerIndexOutOfRange(oldIndex));
 
                 bytes32[] storage usingMultisigs = _multisigsUsingKey[account][lastKeyHash];
                 for (uint256 m = 0; m < usingMultisigs.length; m++) {
