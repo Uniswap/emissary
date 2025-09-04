@@ -45,6 +45,9 @@ contract GenericKeyManager {
     using IdLib for ResetPeriod;
     using DynamicArrayLib for DynamicArrayLib.DynamicArray;
 
+    /// @notice Maximum number of keys allowed per account (due to 256-bit signer bitmap)
+    uint256 public constant MAX_KEYS_PER_ACCOUNT = 256;
+
     /// @notice Registry of authorized keys for each account
     /// @dev account => keyHash => Key
     mapping(address account => mapping(bytes32 keyHash => Key key)) public keys;
@@ -304,7 +307,7 @@ contract GenericKeyManager {
                 uint16 oldIndex = uint16(accountKeyHashes.length - 1);
 
                 // Range check before any bit shifting
-                if (newIndex >= 256 || oldIndex >= 256) {
+                if (newIndex >= MAX_KEYS_PER_ACCOUNT || oldIndex >= MAX_KEYS_PER_ACCOUNT) {
                     revert MultisigSignerIndexOutOfRange(newIndex);
                 }
 
@@ -562,7 +565,7 @@ contract GenericKeyManager {
         // Validate inputs
         uint8 signerCount = uint8(signerIndices.length);
         require(threshold > 0 && threshold <= signerCount, InvalidMultisigConfig('Invalid threshold'));
-        require(signerCount > 0 && signerCount <= 255, InvalidMultisigConfig('Invalid signer count'));
+        require(signerCount > 0 && signerCount < MAX_KEYS_PER_ACCOUNT, InvalidMultisigConfig('Invalid signer count'));
         require(signerIndices.length <= keyHashes[account].length, InvalidMultisigConfig('Signer index out of bounds'));
 
         // Create bitmap from signer indices
@@ -573,7 +576,7 @@ contract GenericKeyManager {
             uint16 index = signerIndices[i];
             require(index < keyHashes[account].length, InvalidMultisigConfig('Signer index out of bounds'));
             require((signerBitmap & (1 << index)) == 0, InvalidMultisigConfig('Duplicate signer index'));
-            if (index >= 256) revert MultisigSignerIndexOutOfRange(index);
+            if (index >= MAX_KEYS_PER_ACCOUNT) revert MultisigSignerIndexOutOfRange(index);
 
             // Verify the key exists
             bytes32 keyHash = keyHashes[account][index];
@@ -852,7 +855,7 @@ contract GenericKeyManager {
         // Single pass with dynamic array builder
         DynamicArrayLib.DynamicArray memory results;
         uint256 maxLen = accountKeyHashes.length;
-        if (maxLen > 256) maxLen = 256; // signerBitmap is 256 bits
+        if (maxLen > MAX_KEYS_PER_ACCOUNT) maxLen = MAX_KEYS_PER_ACCOUNT; // signerBitmap capacity is 256 bits
         for (uint256 i = 0; i < maxLen; i++) {
             if ((config.signerBitmap & (1 << i)) != 0) {
                 results.p(accountKeyHashes[i]);
