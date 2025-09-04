@@ -2,10 +2,11 @@
 pragma solidity ^0.8.30;
 
 import {Key, KeyLib, KeyType} from './KeyLib.sol';
-import {IdLib} from 'the-compact/lib/IdLib.sol';
-import {ResetPeriod} from 'the-compact/types/ResetPeriod.sol';
+
 import {DynamicArrayLib} from 'solady/utils/DynamicArrayLib.sol';
 import {LibSort} from 'solady/utils/LibSort.sol';
+import {IdLib} from 'the-compact/lib/IdLib.sol';
+import {ResetPeriod} from 'the-compact/types/ResetPeriod.sol';
 
 /// @notice Configuration for M-of-N multisig
 /// @param signerBitmap Bitmap indicating which keys are signers (bit i = keyHashes[account][i] is a signer)
@@ -489,7 +490,7 @@ contract GenericKeyManager {
      */
     function canRemoveKey(address account, bytes32 keyHash) external view returns (bool canRemove) {
         uint64 removableAt = keys[account][keyHash].removalTimestamp;
-        return (removableAt != 0 && block.timestamp >= removableAt);
+        return (removableAt != 0 && block.timestamp >= removableAt && _multisigsUsingKey[account][keyHash].length == 0);
     }
 
     /**
@@ -949,15 +950,5 @@ contract GenericKeyManager {
      */
     function getKeyUsageCount(address account, bytes32 keyHash) external view returns (uint256 count) {
         return _multisigsUsingKey[account][keyHash].length;
-    }
-
-    /**
-     * @notice Check if a key can be safely removed
-     * @param account The account address
-     * @param keyHash The key hash
-     * @return canRemove True if the key is not used in any active multisigs
-     */
-    function canSafelyRemoveKey(address account, bytes32 keyHash) external view returns (bool canRemove) {
-        return _multisigsUsingKey[account][keyHash].length == 0;
     }
 }

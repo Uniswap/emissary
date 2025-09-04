@@ -7,16 +7,16 @@ import {BaseKeyVerifier} from 'src/BaseKeyVerifier.sol';
 import {Key, KeyLib, KeyType} from 'src/KeyLib.sol';
 import {KeyManagerEmissary} from 'src/KeyManagerEmissary.sol';
 
-import {CreateClaimHashWithWitnessArgs} from 'lib/the-compact/test/integration/TestHelperStructs.sol';
-import {Setup} from 'lib/the-compact/test/integration/Setup.sol';
 import {MockERC1271Wallet} from 'lib/solady/test/utils/mocks/MockERC1271Wallet.sol';
+import {Setup} from 'lib/the-compact/test/integration/Setup.sol';
+import {CreateClaimHashWithWitnessArgs} from 'lib/the-compact/test/integration/TestHelperStructs.sol';
 
+import {P256} from 'solady/utils/P256.sol';
+import {ITheCompact} from 'the-compact/interfaces/ITheCompact.sol';
 import {Claim} from 'the-compact/types/Claims.sol';
 import {Component} from 'the-compact/types/Components.sol';
-import {ITheCompact} from 'the-compact/interfaces/ITheCompact.sol';
 import {ResetPeriod} from 'the-compact/types/ResetPeriod.sol';
 import {Scope} from 'the-compact/types/Scope.sol';
-import {P256} from 'solady/utils/P256.sol';
 
 contract EmissaryE2E is Setup, P256VerifierEtcher {
     using KeyLib for Key;

@@ -303,10 +303,65 @@ contract GenericKeyManagerTest is Test {
     }
 
     function test_revert_RemoveKey_KeyNotRegistered() public {
-        bytes32 keyHash = keccak256("notRegistered");
+        bytes32 keyHash = keccak256('notRegistered');
         vm.expectRevert(abi.encodeWithSelector(GenericKeyManager.KeyNotRegistered.selector, alice, keyHash));
         vm.prank(alice);
         keyManager.removeKey(alice, keyHash);
+    }
+
+    function test_canRemoveKey_NotScheduled_ReturnsFalse() public {
+        vm.prank(alice);
+        bytes32 h = keyManager.registerKey(KeyType.Secp256k1, abi.encode(alice), ResetPeriod.OneSecond);
+
+        bool canRemove = keyManager.canRemoveKey(alice, h);
+        assertFalse(canRemove);
+    }
+
+    function test_canRemoveKey_ScheduledBeforeTimelock_ReturnsFalse() public {
+        vm.prank(alice);
+        bytes32 h = keyManager.registerKey(KeyType.Secp256k1, abi.encode(alice), ResetPeriod.TenMinutes);
+
+        vm.warp(100);
+        vm.prank(alice);
+        keyManager.scheduleKeyRemoval(alice, h);
+
+        bool canRemove = keyManager.canRemoveKey(alice, h);
+        assertFalse(canRemove);
+    }
+
+    function test_canRemoveKey_ScheduledAfterTimelock_NoMultisig_ReturnsTrue() public {
+        vm.prank(alice);
+        bytes32 h = keyManager.registerKey(KeyType.Secp256k1, abi.encode(alice), ResetPeriod.OneSecond);
+
+        vm.prank(alice);
+        uint256 removableAt = keyManager.scheduleKeyRemoval(alice, h);
+
+        vm.warp(removableAt + 1);
+        bool canRemove = keyManager.canRemoveKey(alice, h);
+        assertTrue(canRemove);
+    }
+
+    function test_canRemoveKey_ScheduledAfterTimelock_UsedInMultisig_ReturnsFalse() public {
+        // Register two keys so we can build a multisig including the first key
+        vm.startPrank(alice);
+        bytes32 h1 = keyManager.registerKey(KeyType.Secp256k1, abi.encode(alice), ResetPeriod.OneSecond);
+        keyManager.registerKey(KeyType.Secp256k1, abi.encode(bob), ResetPeriod.OneSecond);
+        vm.stopPrank();
+
+        // Create a 1-of-2 multisig that includes index 0 (h1)
+        uint16[] memory signerIndices = new uint16[](1);
+        signerIndices[0] = 0; // key at index 0 is h1
+        vm.prank(alice);
+        keyManager.registerMultisig(1, signerIndices, ResetPeriod.OneSecond);
+
+        // Schedule removal of h1 and advance time beyond timelock
+        vm.prank(alice);
+        uint256 removableAt = keyManager.scheduleKeyRemoval(alice, h1);
+        vm.warp(removableAt + 1);
+
+        // Because h1 is used in a multisig, canRemoveKey should be false
+        bool canRemove = keyManager.canRemoveKey(alice, h1);
+        assertFalse(canRemove);
     }
 
     function test_RemoveKey_WithAccountParam_Unauthorized() public {

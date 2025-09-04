@@ -9,8 +9,8 @@ import {ECDSA} from 'solady/utils/ECDSA.sol';
 import {P256} from 'solady/utils/P256.sol';
 import {WebAuthn} from 'solady/utils/WebAuthn.sol';
 
-import {IdLib} from 'the-compact/lib/IdLib.sol';
 import {IEmissary} from 'the-compact/interfaces/IEmissary.sol';
+import {IdLib} from 'the-compact/lib/IdLib.sol';
 import {ResetPeriod} from 'the-compact/types/ResetPeriod.sol';
 
 import {BaseKeyVerifier} from 'src/BaseKeyVerifier.sol';
