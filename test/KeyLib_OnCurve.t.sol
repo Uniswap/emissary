@@ -2,8 +2,9 @@
 pragma solidity ^0.8.27;
 
 import {Test} from 'forge-std/Test.sol';
-import {KeyLib} from 'src/KeyLib.sol';
+
 import {P256} from 'solady/utils/P256.sol';
+import {KeyLib} from 'src/KeyLib.sol';
 
 contract KeyLibHarness {
     function isOnCurve(uint256 x, uint256 y) external pure returns (bool) {
@@ -82,9 +83,9 @@ contract KeyLib_OnCurve_Test is Test {
     function testFuzz__p256IsOnCurve_FromScalarAndNegation(uint256 s) public view {
         s = bound(s, 1, P256.N - 1);
         (uint256 x, uint256 y) = vm.publicKeyP256(s);
-        assertTrue(harness.isOnCurve(x, y), "scalar-derived point must be on curve");
+        assertTrue(harness.isOnCurve(x, y), 'scalar-derived point must be on curve');
         uint256 yNeg = addmod(P, P - y, P);
-        assertTrue(harness.isOnCurve(x, yNeg), "negation must be on curve");
+        assertTrue(harness.isOnCurve(x, yNeg), 'negation must be on curve');
     }
 
     function testFuzz__p256IsOnCurve_RandomOffCurve_ReturnsFalse(uint256 x, uint256 y) public view {
@@ -97,13 +98,13 @@ contract KeyLib_OnCurve_Test is Test {
         uint256 rhs = addmod(addmod(x3, P - threeX, P), B, P);
         uint256 lhs = mulmod(y, y, P);
         vm.assume(lhs != rhs);
-        assertFalse(harness.isOnCurve(x, y), "random off-curve point must be invalid");
+        assertFalse(harness.isOnCurve(x, y), 'random off-curve point must be invalid');
     }
 
     function testFuzz__p256IsOnCurve_OutOfFieldFuzz_ReturnsFalse(uint256 x, uint256 y) public view {
         // Force at least one coordinate out-of-field.
         vm.assume(x >= P || y >= P);
-        assertFalse(harness.isOnCurve(x, y), "out-of-field coords must be invalid");
+        assertFalse(harness.isOnCurve(x, y), 'out-of-field coords must be invalid');
     }
 
     function _modExp(uint256 base, uint256 exponent, uint256 modulus) internal view returns (uint256 result) {
