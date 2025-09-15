@@ -158,13 +158,13 @@ library KeyLib {
         } else if (key.keyType == KeyType.P256) {
             // For P256, publicKey should be encoded (x, y) coordinates and lie on the curve.
             if (key.publicKey.length != 64) return false;
-            (bytes32 x, bytes32 y) = abi.decode(key.publicKey, (bytes32, bytes32));
-            return _p256IsOnCurve(x, y);
+            (bytes32 xBytes, bytes32 yBytes) = abi.decode(key.publicKey, (bytes32, bytes32));
+            return _p256IsOnCurve(xBytes, yBytes);
         } else if (key.keyType == KeyType.WebAuthnP256) {
             // For WebAuthnP256, publicKey should be encoded (x, y) coordinates as uint256
             if (key.publicKey.length != 64) return false;
             (uint256 x, uint256 y) = abi.decode(key.publicKey, (uint256, uint256));
-            return x != 0 && y != 0;
+            return _p256IsOnCurve(x, y);
         }
 
         return false;
@@ -216,11 +216,19 @@ library KeyLib {
      * @param xBytes The x coordinate of the P256 point
      * @param yBytes The y coordinate of the P256 point
      * @return True if the point is on the curve
-     * @dev a = -3 mod p is handled via subtraction; we use x^3 - 3x + b form
      */
     function _p256IsOnCurve(bytes32 xBytes, bytes32 yBytes) internal pure returns (bool) {
-        uint256 x = uint256(xBytes);
-        uint256 y = uint256(yBytes);
+        return _p256IsOnCurve(uint256(xBytes), uint256(yBytes));
+    }
+
+    /**
+     * @notice Checks if a P256 point is on the curve
+     * @param x The x coordinate of the P256 point
+     * @param y The y coordinate of the P256 point
+     * @return True if the point is on the curve
+     * @dev a = -3 mod p is handled via subtraction; we use x^3 - 3x + b form
+     */
+    function _p256IsOnCurve(uint256 x, uint256 y) internal pure returns (bool) {
         // Reject coordinates outside field and the point at infinity representation (0,0)
         if (x >= P256_P || y >= P256_P) return false;
         if (x == 0 && y == 0) return false;

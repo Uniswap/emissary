@@ -62,7 +62,7 @@ contract GenericKeyManagerTest is Test {
             publicKey: abi.encode(alice)
         });
 
-        // P256 key (valid coordinates)
+        // P256 key (random valid coordinates)
         {
             uint256 sk = _bound(uint256(keccak256('gkm_p256_fixture')), 1, P256.N - 1);
             (uint256 xU, uint256 yU) = vm.publicKeyP256(sk);
@@ -75,17 +75,18 @@ contract GenericKeyManagerTest is Test {
             });
         }
 
-        // WebAuthn key (dummy coordinates)
-        webauthnKey = Key({
-            keyType: KeyType.WebAuthnP256,
-            resetPeriod: ResetPeriod.TenMinutes,
-            removalTimestamp: 0,
-            index: 0,
-            publicKey: abi.encode(
-                bytes32(0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890),
-                bytes32(0x0987654321fedcba0987654321fedcba0987654321fedcba0987654321fedcba)
-            )
-        });
+        // WebAuthn key (same curve as P256, different format)
+        {
+            uint256 sk = _bound(uint256(keccak256('gkm_p256_fixture')), 1, P256.N - 1);
+            (uint256 xU, uint256 yU) = vm.publicKeyP256(sk);
+            webauthnKey = Key({
+                keyType: KeyType.WebAuthnP256,
+                resetPeriod: ResetPeriod.TenMinutes,
+                removalTimestamp: 0,
+                index: 0,
+                publicKey: abi.encode(xU, yU)
+            });
+        }
 
         // Generate test signature for secp256k1
         testSignature = generateSecp256k1Signature(testDigest, alicePrivateKey);
