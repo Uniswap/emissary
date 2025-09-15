@@ -1,5 +1,5 @@
 # KeyLib
-[Git Source](https://github.com/Uniswap/emissary/blob/73d4c334089f173fa867450ba717f1216afcec61/src/KeyLib.sol)
+[Git Source](https://github.com/Uniswap/emissary/blob/087381249fbc6287846da8c4cb161a0495509338/src/KeyLib.sol)
 
 Library for key management and signature verification
 
@@ -164,8 +164,6 @@ function fromWebAuthnP256(uint256 x, uint256 y, ResetPeriod resetPeriod) interna
 
 Checks if a P256 point is on the curve
 
-*a = -3 mod p is handled via subtraction; we use x^3 - 3x + b form*
-
 
 ```solidity
 function _p256IsOnCurve(bytes32 xBytes, bytes32 yBytes) internal pure returns (bool);
@@ -176,6 +174,30 @@ function _p256IsOnCurve(bytes32 xBytes, bytes32 yBytes) internal pure returns (b
 |----|----|-----------|
 |`xBytes`|`bytes32`|The x coordinate of the P256 point|
 |`yBytes`|`bytes32`|The y coordinate of the P256 point|
+
+**Returns**
+
+|Name|Type|Description|
+|----|----|-----------|
+|`<none>`|`bool`|True if the point is on the curve|
+
+
+### _p256IsOnCurve
+
+Checks if a P256 point is on the curve
+
+*a = -3 mod p is handled via subtraction; we use x^3 - 3x + b form*
+
+
+```solidity
+function _p256IsOnCurve(uint256 x, uint256 y) internal pure returns (bool);
+```
+**Parameters**
+
+|Name|Type|Description|
+|----|----|-----------|
+|`x`|`uint256`|The x coordinate of the P256 point|
+|`y`|`uint256`|The y coordinate of the P256 point|
 
 **Returns**
 
