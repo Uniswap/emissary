@@ -42,7 +42,7 @@ contract KeyLib_OnCurve_Test is Test {
         // For x = 0, curve is y^2 = b (mod p). Since p ≡ 3 (mod 4), sqrt can be computed as b^((p+1)/4) mod p.
         uint256 exp = (P + 1) >> 2;
         uint256 y = _modExp(B % P, exp, P);
-        require(y != 0, 'sqrt(b) must be non-zero');
+        assertTrue(y != 0, 'sqrt(b) must be non-zero');
 
         bool onCurve = harness.isOnCurve(0, y);
         assertTrue(onCurve, 'x=0, y=sqrt(b) must be on curve');
@@ -103,7 +103,8 @@ contract KeyLib_OnCurve_Test is Test {
 
     function testFuzz__p256IsOnCurve_OutOfFieldFuzz_ReturnsFalse(uint256 x, uint256 y) public view {
         // Force at least one coordinate out-of-field.
-        vm.assume(x >= P || y >= P);
+        x = bound(x, P, type(uint256).max);
+        y = bound(y, P, type(uint256).max);
         assertFalse(harness.isOnCurve(x, y), 'out-of-field coords must be invalid');
     }
 
