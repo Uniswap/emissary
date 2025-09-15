@@ -57,14 +57,12 @@ contract KeyLib_OnCurve_Test is Test {
     }
 
     function test__p256IsOnCurve_OutOfField_ReturnsFalse() public view {
-        // x >= p
-        assertFalse(harness.isOnCurve(P, 1), 'x == p must be invalid');
-        // y >= p
-        assertFalse(harness.isOnCurve(1, P), 'y == p must be invalid');
+        assertFalse(harness.isOnCurve(P, 1), 'x >= p must be invalid');
+        assertFalse(harness.isOnCurve(1, P), 'y >= p must be invalid');
     }
 
     function test__p256IsOnCurve_PointAtInfinity_ReturnsFalse() public view {
-        assertFalse(harness.isOnCurve(0, 0), '(0,0) must be invalid');
+        assertFalse(harness.isOnCurve(0, 0), 'point at infinity must be invalid');
     }
 
     function test__p256IsOnCurve_GxWithWrongY_ReturnsFalse() public view {
