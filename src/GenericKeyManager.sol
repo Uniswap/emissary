@@ -126,6 +126,12 @@ contract GenericKeyManager {
     /// @param removableAt The timestamp when removal will be available
     error KeyRemovalUnavailable(uint256 removableAt);
 
+    /// @notice Thrown when attempting to schedule a key removal that is already scheduled
+    /// @param account The account address
+    /// @param keyHash The key hash
+    /// @param removableAt The timestamp when the key will be removable
+    error KeyRemovalAlreadyScheduled(address account, bytes32 keyHash, uint256 removableAt);
+
     /// @notice Thrown when caller is not authorized to manage keys for the account
     /// @param caller The caller address
     /// @param account The account address
@@ -148,6 +154,12 @@ contract GenericKeyManager {
     /// @notice Thrown when multisig removal is attempted before timelock expires
     /// @param removableAt The timestamp when removal will be available
     error MultisigRemovalUnavailable(uint256 removableAt);
+
+    /// @notice Thrown when attempting to schedule a multisig removal that is already scheduled
+    /// @param account The account address
+    /// @param multisigHash The multisig hash
+    /// @param removableAt The timestamp when the multisig will be removable
+    error MultisigRemovalAlreadyScheduled(address account, bytes32 multisigHash, uint256 removableAt);
 
     /// @notice Thrown when trying to remove a key that's still used in multisigs
     /// @param keyHash The key hash
@@ -246,6 +258,12 @@ contract GenericKeyManager {
 
         // Get the key and its reset period
         Key storage key = keys[account][keyHash];
+
+        // Prevent re-scheduling if already scheduled
+        uint64 existingSchedule = key.removalTimestamp;
+        if (existingSchedule != 0) {
+            revert KeyRemovalAlreadyScheduled(account, keyHash, uint256(existingSchedule));
+        }
         ResetPeriod resetPeriod = key.resetPeriod;
 
         unchecked {
@@ -728,6 +746,12 @@ contract GenericKeyManager {
 
         // Get the multisig and its reset period
         MultisigConfig storage config = multisigs[account][multisigHash];
+
+        // Prevent re-scheduling if already scheduled
+        uint64 existingSchedule = config.removalTimestamp;
+        if (existingSchedule != 0) {
+            revert MultisigRemovalAlreadyScheduled(account, multisigHash, uint256(existingSchedule));
+        }
         ResetPeriod resetPeriod = config.resetPeriod;
 
         unchecked {
