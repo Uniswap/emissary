@@ -1,10 +1,13 @@
 # KeyManagerEmissary
-[Git Source](https://github.com/Uniswap/emissary/blob/026379c337c2c643aa148c4bc9f4bfba296a3b4a/src/KeyManagerEmissary.sol)
+[Git Source](https://github.com/Uniswap/emissary/blob/73d4c334089f173fa867450ba717f1216afcec61/src/KeyManagerEmissary.sol)
 
 **Inherits:**
 [BaseKeyVerifier](/src/BaseKeyVerifier.sol/contract.BaseKeyVerifier.md), IEmissary
 
 A Compact-specific adapter that implements IEmissary using the generic key management foundation
+
+**Note:**
+security-contact: security@uniswap.org
 
 
 ## Functions

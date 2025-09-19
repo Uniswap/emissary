@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.30;
 
-import {IERC1271} from './interfaces/IERC1271.sol';
-import {ECDSA} from 'lib/solady/src/utils/ECDSA.sol';
-import {EfficientHashLib} from 'lib/solady/src/utils/EfficientHashLib.sol';
-import {P256} from 'lib/solady/src/utils/P256.sol';
-
-import {WebAuthn} from 'lib/solady/src/utils/WebAuthn.sol';
-import {ResetPeriod} from 'lib/the-compact/src/types/ResetPeriod.sol';
+import {IERC1271} from 'permit2/src/interfaces/IERC1271.sol';
+import {ECDSA} from 'solady/utils/ECDSA.sol';
+import {EfficientHashLib} from 'solady/utils/EfficientHashLib.sol';
+import {P256} from 'solady/utils/P256.sol';
+import {WebAuthn} from 'solady/utils/WebAuthn.sol';
+import {ResetPeriod} from 'the-compact/types/ResetPeriod.sol';
 
 /// @notice The type of key supported by the emissary
 enum KeyType {
@@ -30,9 +29,16 @@ struct Key {
     bytes publicKey;
 }
 
-/// @notice Library for key management and signature verification
-/// @dev Adapted from Uniswap Calibur 7702 wallet implementation
+/**
+ * @title KeyLib
+ * @notice Library for key management and signature verification
+ * @dev Adapted from Uniswap Calibur 7702 wallet implementation
+ * @custom:security-contact security@uniswap.org
+ */
 library KeyLib {
+    uint256 internal constant P256_P = 0xFFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF;
+    uint256 internal constant P256_B = 0x5AC635D8AA3A93E7B3EBBD55769886BC651D06B0CC53B0F63BCE3C3E27D2604B;
+
     /**
      * @notice Hashes a key to create a unique identifier
      * @param key The key to hash
@@ -142,18 +148,23 @@ library KeyLib {
         if (key.keyType == KeyType.Secp256k1) {
             // For Secp256k1, publicKey should be an encoded address
             if (key.publicKey.length != 32) return false;
+
+            // Validate upper 12 bytes are zeros in alignment with canonical address encoding
+            bytes32 raw = bytes32(key.publicKey);
+            if (uint96(uint256(raw >> 160)) != 0) return false;
+
             address addr = abi.decode(key.publicKey, (address));
             return addr != address(0);
         } else if (key.keyType == KeyType.P256) {
-            // For P256, publicKey should be encoded (x, y) coordinates
+            // For P256, publicKey should be encoded (x, y) coordinates and lie on the curve.
             if (key.publicKey.length != 64) return false;
-            (bytes32 x, bytes32 y) = abi.decode(key.publicKey, (bytes32, bytes32));
-            return x != bytes32(0) && y != bytes32(0);
+            (bytes32 xBytes, bytes32 yBytes) = abi.decode(key.publicKey, (bytes32, bytes32));
+            return _p256IsOnCurve(xBytes, yBytes);
         } else if (key.keyType == KeyType.WebAuthnP256) {
             // For WebAuthnP256, publicKey should be encoded (x, y) coordinates as uint256
             if (key.publicKey.length != 64) return false;
             (uint256 x, uint256 y) = abi.decode(key.publicKey, (uint256, uint256));
-            return x != 0 && y != 0;
+            return _p256IsOnCurve(x, y);
         }
 
         return false;
@@ -198,5 +209,37 @@ library KeyLib {
         key.resetPeriod = resetPeriod;
         key.publicKey = abi.encode(x, y);
         return key;
+    }
+
+    /**
+     * @notice Checks if a P256 point is on the curve
+     * @param xBytes The x coordinate of the P256 point
+     * @param yBytes The y coordinate of the P256 point
+     * @return True if the point is on the curve
+     */
+    function _p256IsOnCurve(bytes32 xBytes, bytes32 yBytes) internal pure returns (bool) {
+        return _p256IsOnCurve(uint256(xBytes), uint256(yBytes));
+    }
+
+    /**
+     * @notice Checks if a P256 point is on the curve
+     * @param x The x coordinate of the P256 point
+     * @param y The y coordinate of the P256 point
+     * @return True if the point is on the curve
+     * @dev a = -3 mod p is handled via subtraction; we use x^3 - 3x + b form
+     */
+    function _p256IsOnCurve(uint256 x, uint256 y) internal pure returns (bool) {
+        // Reject coordinates outside field and the point at infinity representation (0,0)
+        if (x >= P256_P || y >= P256_P) return false;
+        if (x == 0 && y == 0) return false;
+
+        // y^2 mod p
+        uint256 lhs = mulmod(y, y, P256_P);
+        // x^3 - 3x + b mod p
+        uint256 x2 = mulmod(x, x, P256_P);
+        uint256 x3 = mulmod(x2, x, P256_P);
+        uint256 threeX = mulmod(3, x, P256_P);
+        uint256 rhs = addmod(addmod(x3, P256_P - threeX, P256_P), P256_B, P256_P);
+        return lhs == rhs;
     }
 }
