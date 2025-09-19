@@ -656,6 +656,21 @@ contract GenericKeyManagerTest is Test {
         }
     }
 
+    function test_RevertWhen_RegisteringMoreThan256Keys() public {
+        // Register 256 keys for Alice
+        for (uint256 i = 0; i < 256; i++) {
+            vm.prank(alice);
+            keyManager.registerKey(
+                KeyType.Secp256k1, abi.encode(makeAddr(string(abi.encodePacked('k', i)))), ResetPeriod.OneSecond
+            );
+        }
+
+        // Attempt to register the 257th key should revert
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(GenericKeyManager.MaxKeysPerAccountExceeded.selector, alice, 257));
+        keyManager.registerKey(KeyType.Secp256k1, abi.encode(makeAddr('k257')), ResetPeriod.OneSecond);
+    }
+
     function test_RegisterMultisig_InvalidThreshold() public {
         _setupMultisigKeys();
 
