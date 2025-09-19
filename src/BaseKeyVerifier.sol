@@ -14,6 +14,7 @@ import {ResetPeriod} from 'the-compact/types/ResetPeriod.sol';
  * @notice A base contract that implements ISignatureVerifier with common verification patterns
  * @dev This contract provides a foundation for protocols to build upon by combining
  * key management with signature verification functionality
+ * @custom:security-contact security@uniswap.org
  */
 contract BaseKeyVerifier is GenericKeyManager, ISignatureVerifier {
     using KeyLib for Key;

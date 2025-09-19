@@ -1,5 +1,5 @@
 # GenericKeyManager
-[Git Source](https://github.com/Uniswap/emissary/blob/2a9d1b59f21832ed9ddb55345f97f18e243f1080/src/GenericKeyManager.sol)
+[Git Source](https://github.com/Uniswap/emissary/blob/73d4c334089f173fa867450ba717f1216afcec61/src/GenericKeyManager.sol)
 
 A generic key management contract that provides core functionality
 
@@ -7,8 +7,20 @@ A generic key management contract that provides core functionality
 while being protocol-agnostic. Other contracts can inherit from this to add
 protocol-specific verification logic.*
 
+**Note:**
+security-contact: security@uniswap.org
+
 
 ## State Variables
+### MAX_KEYS_PER_ACCOUNT
+Maximum number of keys allowed per account (due to 256-bit signer bitmap)
+
+
+```solidity
+uint256 public constant MAX_KEYS_PER_ACCOUNT = 256;
+```
+
+
 ### keys
 Registry of authorized keys for each account
 
@@ -957,28 +969,6 @@ function getKeyUsageCount(address account, bytes32 keyHash) external view return
 |Name|Type|Description|
 |----|----|-----------|
 |`count`|`uint256`|Number of multisigs using this key|
-
-
-### canSafelyRemoveKey
-
-Check if a key can be safely removed
-
-
-```solidity
-function canSafelyRemoveKey(address account, bytes32 keyHash) external view returns (bool canRemove);
-```
-**Parameters**
-
-|Name|Type|Description|
-|----|----|-----------|
-|`account`|`address`|The account address|
-|`keyHash`|`bytes32`|The key hash|
-
-**Returns**
-
-|Name|Type|Description|
-|----|----|-----------|
-|`canRemove`|`bool`|True if the key is not used in any active multisigs|
 
 
 ## Events

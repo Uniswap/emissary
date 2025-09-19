@@ -2,10 +2,11 @@
 pragma solidity ^0.8.30;
 
 import {Key, KeyLib, KeyType} from './KeyLib.sol';
-import {IdLib} from 'lib/the-compact/src/lib/IdLib.sol';
-import {ResetPeriod} from 'lib/the-compact/src/types/ResetPeriod.sol';
+
 import {DynamicArrayLib} from 'solady/utils/DynamicArrayLib.sol';
 import {LibSort} from 'solady/utils/LibSort.sol';
+import {IdLib} from 'the-compact/lib/IdLib.sol';
+import {ResetPeriod} from 'the-compact/types/ResetPeriod.sol';
 
 /// @notice Configuration for M-of-N multisig
 /// @param signerBitmap Bitmap indicating which keys are signers (bit i = keyHashes[account][i] is a signer)
@@ -39,11 +40,15 @@ struct MultisigSignature {
  * @dev This contract handles key registration, removal, and timelock mechanisms
  * while being protocol-agnostic. Other contracts can inherit from this to add
  * protocol-specific verification logic.
+ * @custom:security-contact security@uniswap.org
  */
 contract GenericKeyManager {
     using KeyLib for Key;
     using IdLib for ResetPeriod;
     using DynamicArrayLib for DynamicArrayLib.DynamicArray;
+
+    /// @notice Maximum number of keys allowed per account (due to 256-bit signer bitmap)
+    uint256 public constant MAX_KEYS_PER_ACCOUNT = 256;
 
     /// @notice Registry of authorized keys for each account
     /// @dev account => keyHash => Key
@@ -295,13 +300,13 @@ contract GenericKeyManager {
     }
 
     function _removeKey(address account, bytes32 keyHash) internal {
+        // Check if the key exists and the caller is authorized to manage keys for the account
+        require(_keyExists(account, keyHash), KeyNotRegistered(account, keyHash));
         _checkKeyManagementAuthorization(account);
 
         // Check if key is still used in any multisigs
         uint256 usageCount = _multisigsUsingKey[account][keyHash].length;
-        if (usageCount > 0) {
-            revert KeyStillInUse(keyHash, usageCount);
-        }
+        require(usageCount == 0, KeyStillInUse(keyHash, usageCount));
 
         // Check if removal has been properly scheduled and timelock has expired
         Key storage key = keys[account][keyHash];
@@ -322,9 +327,8 @@ contract GenericKeyManager {
                 uint16 oldIndex = uint16(accountKeyHashes.length - 1);
 
                 // Range check before any bit shifting
-                if (newIndex >= 256 || oldIndex >= 256) {
-                    revert MultisigSignerIndexOutOfRange(newIndex);
-                }
+                require(newIndex < MAX_KEYS_PER_ACCOUNT, MultisigSignerIndexOutOfRange(newIndex));
+                require(oldIndex < MAX_KEYS_PER_ACCOUNT, MultisigSignerIndexOutOfRange(oldIndex));
 
                 bytes32[] storage usingMultisigs = _multisigsUsingKey[account][lastKeyHash];
                 for (uint256 m = 0; m < usingMultisigs.length; m++) {
@@ -333,9 +337,7 @@ contract GenericKeyManager {
                     MultisigConfig storage cfg = multisigs[account][msHash];
 
                     // Collision check
-                    if ((cfg.signerBitmap & (1 << newIndex)) != 0) {
-                        revert MultisigSignerIndexCollision(msHash, newIndex);
-                    }
+                    require((cfg.signerBitmap & (1 << newIndex)) == 0, MultisigSignerIndexCollision(msHash, newIndex));
 
                     // Move the signer bit from oldIndex to newIndex
                     cfg.signerBitmap = (cfg.signerBitmap & ~(1 << oldIndex)) | (1 << newIndex);
@@ -506,7 +508,7 @@ contract GenericKeyManager {
      */
     function canRemoveKey(address account, bytes32 keyHash) external view returns (bool canRemove) {
         uint64 removableAt = keys[account][keyHash].removalTimestamp;
-        return (removableAt != 0 && block.timestamp >= removableAt);
+        return (removableAt != 0 && block.timestamp >= removableAt && _multisigsUsingKey[account][keyHash].length == 0);
     }
 
     /**
@@ -581,7 +583,7 @@ contract GenericKeyManager {
         // Validate inputs
         uint8 signerCount = uint8(signerIndices.length);
         require(threshold > 0 && threshold <= signerCount, InvalidMultisigConfig('Invalid threshold'));
-        require(signerCount > 0 && signerCount <= 255, InvalidMultisigConfig('Invalid signer count'));
+        require(signerCount > 0 && signerCount < MAX_KEYS_PER_ACCOUNT, InvalidMultisigConfig('Invalid signer count'));
         require(signerIndices.length <= keyHashes[account].length, InvalidMultisigConfig('Signer index out of bounds'));
 
         // Create bitmap from signer indices
@@ -592,7 +594,7 @@ contract GenericKeyManager {
             uint16 index = signerIndices[i];
             require(index < keyHashes[account].length, InvalidMultisigConfig('Signer index out of bounds'));
             require((signerBitmap & (1 << index)) == 0, InvalidMultisigConfig('Duplicate signer index'));
-            if (index >= 256) revert MultisigSignerIndexOutOfRange(index);
+            require(index < MAX_KEYS_PER_ACCOUNT, MultisigSignerIndexOutOfRange(index));
 
             // Verify the key exists
             bytes32 keyHash = keyHashes[account][index];
@@ -877,7 +879,7 @@ contract GenericKeyManager {
         // Single pass with dynamic array builder
         DynamicArrayLib.DynamicArray memory results;
         uint256 maxLen = accountKeyHashes.length;
-        if (maxLen > 256) maxLen = 256; // signerBitmap is 256 bits
+        if (maxLen > MAX_KEYS_PER_ACCOUNT) maxLen = MAX_KEYS_PER_ACCOUNT; // signerBitmap capacity is 256 bits
         for (uint256 i = 0; i < maxLen; i++) {
             if ((config.signerBitmap & (1 << i)) != 0) {
                 results.p(accountKeyHashes[i]);
@@ -973,15 +975,5 @@ contract GenericKeyManager {
      */
     function getKeyUsageCount(address account, bytes32 keyHash) external view returns (uint256 count) {
         return _multisigsUsingKey[account][keyHash].length;
-    }
-
-    /**
-     * @notice Check if a key can be safely removed
-     * @param account The account address
-     * @param keyHash The key hash
-     * @return canRemove True if the key is not used in any active multisigs
-     */
-    function canSafelyRemoveKey(address account, bytes32 keyHash) external view returns (bool canRemove) {
-        return _multisigsUsingKey[account][keyHash].length == 0;
     }
 }

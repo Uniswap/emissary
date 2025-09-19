@@ -3,10 +3,11 @@ pragma solidity ^0.8.27;
 
 import {Test} from 'forge-std/Test.sol';
 
-import {ResetPeriod} from 'lib/the-compact/src/types/ResetPeriod.sol';
+import {P256} from 'solady/utils/P256.sol';
+import {ResetPeriod} from 'the-compact/types/ResetPeriod.sol';
+
 import {BaseKeyVerifier} from 'src/BaseKeyVerifier.sol';
 import {GenericKeyManager, MultisigConfig, MultisigSignature} from 'src/GenericKeyManager.sol';
-
 import {Key, KeyLib, KeyType} from 'src/KeyLib.sol';
 import {ISignatureVerifier} from 'src/interfaces/ISignatureVerifier.sol';
 import {VerificationContext} from 'src/types/VerificationContext.sol';
@@ -61,29 +62,31 @@ contract GenericKeyManagerTest is Test {
             publicKey: abi.encode(alice)
         });
 
-        // P256 key (dummy coordinates)
-        p256Key = Key({
-            keyType: KeyType.P256,
-            resetPeriod: ResetPeriod.OneHourAndFiveMinutes,
-            removalTimestamp: 0,
-            index: 0,
-            publicKey: abi.encode(
-                bytes32(0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef),
-                bytes32(0xfedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321)
-            )
-        });
+        // P256 key (random valid coordinates)
+        {
+            uint256 sk = _bound(uint256(keccak256('gkm_p256_fixture')), 1, P256.N - 1);
+            (uint256 xU, uint256 yU) = vm.publicKeyP256(sk);
+            p256Key = Key({
+                keyType: KeyType.P256,
+                resetPeriod: ResetPeriod.OneHourAndFiveMinutes,
+                removalTimestamp: 0,
+                index: 0,
+                publicKey: abi.encode(bytes32(xU), bytes32(yU))
+            });
+        }
 
-        // WebAuthn key (dummy coordinates)
-        webauthnKey = Key({
-            keyType: KeyType.WebAuthnP256,
-            resetPeriod: ResetPeriod.TenMinutes,
-            removalTimestamp: 0,
-            index: 0,
-            publicKey: abi.encode(
-                bytes32(0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890),
-                bytes32(0x0987654321fedcba0987654321fedcba0987654321fedcba0987654321fedcba)
-            )
-        });
+        // WebAuthn key (same curve as P256, different format)
+        {
+            uint256 sk = _bound(uint256(keccak256('gkm_p256_fixture')), 1, P256.N - 1);
+            (uint256 xU, uint256 yU) = vm.publicKeyP256(sk);
+            webauthnKey = Key({
+                keyType: KeyType.WebAuthnP256,
+                resetPeriod: ResetPeriod.TenMinutes,
+                removalTimestamp: 0,
+                index: 0,
+                publicKey: abi.encode(xU, yU)
+            });
+        }
 
         // Generate test signature for secp256k1
         testSignature = generateSecp256k1Signature(testDigest, alicePrivateKey);
@@ -151,6 +154,58 @@ contract GenericKeyManagerTest is Test {
             abi.encodeWithSelector(GenericKeyManager.KeyAlreadyRegistered.selector, alice, secp256k1Key.hash())
         );
         keyManager.registerKey(secp256k1Key.keyType, secp256k1Key.publicKey, secp256k1Key.resetPeriod);
+    }
+
+    function test_revert_RegisterKey_Secp256k1_NonZeroUpperBytes() public {
+        // Construct a 32-byte payload where upper 12 bytes are non-zero, lower 20 hold an address
+        address a = makeAddr('upperbytes');
+        bytes32 bad;
+        // set upper 12 bytes to non-zero, keep lower 20 bytes as address
+        bad = bytes32(uint256((uint256(0xFFFFFFFFFFFFFFFFFFFFFFFF) << 160) | uint256(uint160(a))));
+        bytes memory malformed = abi.encodePacked(bad);
+
+        vm.prank(alice);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                GenericKeyManager.InvalidKey.selector, keccak256(abi.encode(KeyType.Secp256k1, malformed))
+            )
+        );
+        keyManager.registerKey(KeyType.Secp256k1, malformed, ResetPeriod.OneDay);
+    }
+
+    function test_revert_RegisterKey_P256_OffCurve() public {
+        // Construct a likely off-curve point by tweaking random x,y
+        bytes32 x = 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef;
+        bytes32 y = 0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890;
+        bytes memory pk = abi.encode(x, y);
+        bytes32 keyHash = keccak256(abi.encode(KeyType.P256, pk));
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(GenericKeyManager.InvalidKey.selector, keyHash));
+        keyManager.registerKey(KeyType.P256, pk, ResetPeriod.OneDay);
+    }
+
+    function test_revert_RegisterKey_P256_OutOfField() public {
+        // x >= p (use p itself), y within range but not matching curve equation
+        bytes32 xp = bytes32(uint256(0xFFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF));
+        bytes32 y = bytes32(uint256(1));
+        bytes memory pk = abi.encode(xp, y);
+        bytes32 keyHash = keccak256(abi.encode(KeyType.P256, pk));
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(GenericKeyManager.InvalidKey.selector, keyHash));
+        keyManager.registerKey(KeyType.P256, pk, ResetPeriod.OneDay);
+    }
+
+    function test_revert_RegisterKey_P256_PointAtInfinity() public {
+        bytes32 x0 = bytes32(0);
+        bytes32 y0 = bytes32(0);
+        bytes memory pk = abi.encode(x0, y0);
+        bytes32 keyHash = keccak256(abi.encode(KeyType.P256, pk));
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(GenericKeyManager.InvalidKey.selector, keyHash));
+        keyManager.registerKey(KeyType.P256, pk, ResetPeriod.OneDay);
     }
 
     function test_KeyManager_ScheduleKeyRemoval() public {
@@ -312,6 +367,68 @@ contract GenericKeyManagerTest is Test {
         vm.prank(alice);
         keyManager.removeKey(alice, h);
         assertFalse(keyManager.isKeyRegistered(alice, h));
+    }
+
+    function test_revert_RemoveKey_KeyNotRegistered() public {
+        bytes32 keyHash = keccak256('notRegistered');
+        vm.expectRevert(abi.encodeWithSelector(GenericKeyManager.KeyNotRegistered.selector, alice, keyHash));
+        vm.prank(alice);
+        keyManager.removeKey(alice, keyHash);
+    }
+
+    function test_canRemoveKey_NotScheduled_ReturnsFalse() public {
+        vm.prank(alice);
+        bytes32 h = keyManager.registerKey(KeyType.Secp256k1, abi.encode(alice), ResetPeriod.OneSecond);
+
+        bool canRemove = keyManager.canRemoveKey(alice, h);
+        assertFalse(canRemove);
+    }
+
+    function test_canRemoveKey_ScheduledBeforeTimelock_ReturnsFalse() public {
+        vm.prank(alice);
+        bytes32 h = keyManager.registerKey(KeyType.Secp256k1, abi.encode(alice), ResetPeriod.TenMinutes);
+
+        vm.warp(100);
+        vm.prank(alice);
+        keyManager.scheduleKeyRemoval(alice, h);
+
+        bool canRemove = keyManager.canRemoveKey(alice, h);
+        assertFalse(canRemove);
+    }
+
+    function test_canRemoveKey_ScheduledAfterTimelock_NoMultisig_ReturnsTrue() public {
+        vm.prank(alice);
+        bytes32 h = keyManager.registerKey(KeyType.Secp256k1, abi.encode(alice), ResetPeriod.OneSecond);
+
+        vm.prank(alice);
+        uint256 removableAt = keyManager.scheduleKeyRemoval(alice, h);
+
+        vm.warp(removableAt + 1);
+        bool canRemove = keyManager.canRemoveKey(alice, h);
+        assertTrue(canRemove);
+    }
+
+    function test_canRemoveKey_ScheduledAfterTimelock_UsedInMultisig_ReturnsFalse() public {
+        // Register two keys so we can build a multisig including the first key
+        vm.startPrank(alice);
+        bytes32 h1 = keyManager.registerKey(KeyType.Secp256k1, abi.encode(alice), ResetPeriod.OneSecond);
+        keyManager.registerKey(KeyType.Secp256k1, abi.encode(bob), ResetPeriod.OneSecond);
+        vm.stopPrank();
+
+        // Create a 1-of-2 multisig that includes index 0 (h1)
+        uint16[] memory signerIndices = new uint16[](1);
+        signerIndices[0] = 0; // key at index 0 is h1
+        vm.prank(alice);
+        keyManager.registerMultisig(1, signerIndices, ResetPeriod.OneSecond);
+
+        // Schedule removal of h1 and advance time beyond timelock
+        vm.prank(alice);
+        uint256 removableAt = keyManager.scheduleKeyRemoval(alice, h1);
+        vm.warp(removableAt + 1);
+
+        // Because h1 is used in a multisig, canRemoveKey should be false
+        bool canRemove = keyManager.canRemoveKey(alice, h1);
+        assertFalse(canRemove);
     }
 
     function test_RemoveKey_WithAccountParam_Unauthorized() public {
