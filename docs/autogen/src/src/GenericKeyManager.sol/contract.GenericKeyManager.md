@@ -1130,6 +1130,22 @@ error KeyRemovalUnavailable(uint256 removableAt);
 |----|----|-----------|
 |`removableAt`|`uint256`|The timestamp when removal will be available|
 
+### KeyRemovalAlreadyScheduled
+Thrown when attempting to schedule a key removal that is already scheduled
+
+
+```solidity
+error KeyRemovalAlreadyScheduled(address account, bytes32 keyHash, uint256 removableAt);
+```
+
+**Parameters**
+
+|Name|Type|Description|
+|----|----|-----------|
+|`account`|`address`|The account address|
+|`keyHash`|`bytes32`|The key hash|
+|`removableAt`|`uint256`|The timestamp when the key will be removable|
+
 ### UnauthorizedKeyManagement
 Thrown when caller is not authorized to manage keys for the account
 
@@ -1202,6 +1218,22 @@ error MultisigRemovalUnavailable(uint256 removableAt);
 |Name|Type|Description|
 |----|----|-----------|
 |`removableAt`|`uint256`|The timestamp when removal will be available|
+
+### MultisigRemovalAlreadyScheduled
+Thrown when attempting to schedule a multisig removal that is already scheduled
+
+
+```solidity
+error MultisigRemovalAlreadyScheduled(address account, bytes32 multisigHash, uint256 removableAt);
+```
+
+**Parameters**
+
+|Name|Type|Description|
+|----|----|-----------|
+|`account`|`address`|The account address|
+|`multisigHash`|`bytes32`|The multisig hash|
+|`removableAt`|`uint256`|The timestamp when the multisig will be removable|
 
 ### KeyStillInUse
 Thrown when trying to remove a key that's still used in multisigs

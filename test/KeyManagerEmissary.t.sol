@@ -216,7 +216,7 @@ contract KeyManagerEmissaryTest is Test, P256VerifierEtcher {
         emissary.scheduleKeyRemoval(fakeKeyHash);
     }
 
-    function test_scheduleKeyRemoval_Reschedule() public {
+    function test_RevertWhen_SchedulingKeyRemovalWhilePending() public {
         address signer = makeAddr('alice');
         Key memory key = KeyLib.fromAddress(signer, ResetPeriod.TenMinutes);
         bytes32 keyHash = key.hash();
@@ -226,21 +226,52 @@ contract KeyManagerEmissaryTest is Test, P256VerifierEtcher {
 
         // Schedule removal first time
         vm.prank(sponsor1);
-        emissary.scheduleKeyRemoval(keyHash);
+        uint256 firstRemoval = emissary.scheduleKeyRemoval(keyHash);
 
         // Fast forward time
         vm.warp(block.timestamp + 300); // 5 minutes later
 
-        // Reschedule removal
+        // Re-scheduling while pending must revert
         vm.prank(sponsor1);
-        uint256 secondRemoval = emissary.scheduleKeyRemoval(keyHash);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                GenericKeyManager.KeyRemovalAlreadyScheduled.selector, sponsor1, keyHash, firstRemoval
+            )
+        );
+        emissary.scheduleKeyRemoval(keyHash);
+    }
 
-        // Should be scheduled for 10 minutes from new time (block.timestamp + 300 + 600)
-        assertEq(secondRemoval, block.timestamp + 600);
+    function test_RevertWhen_SchedulingMultisigRemovalWhilePending() public {
+        // Set up 2-of-2 multisig
+        (address signer1,) = makeAddrAndKey('ms-a');
+        (address signer2,) = makeAddrAndKey('ms-b');
+        Key memory key1 = KeyLib.fromAddress(signer1, ResetPeriod.SevenDaysAndOneHour);
+        Key memory key2 = KeyLib.fromAddress(signer2, ResetPeriod.SevenDaysAndOneHour);
 
-        (bool isScheduled, uint256 removableAt) = emissary.getKeyRemovalStatus(sponsor1, keyHash);
-        assertTrue(isScheduled);
-        assertEq(removableAt, secondRemoval);
+        vm.startPrank(sponsor1);
+        emissary.registerKey(key1.keyType, key1.publicKey, key1.resetPeriod);
+        emissary.registerKey(key2.keyType, key2.publicKey, key2.resetPeriod);
+        vm.stopPrank();
+
+        uint16[] memory signerIndices = new uint16[](2);
+        signerIndices[0] = 0;
+        signerIndices[1] = 1;
+
+        vm.prank(sponsor1);
+        bytes32 multisigHash = emissary.registerMultisig(2, signerIndices, ResetPeriod.SevenDaysAndOneHour);
+
+        // Schedule removal first time
+        vm.prank(sponsor1);
+        uint256 firstRemoval = emissary.scheduleMultisigRemoval(multisigHash);
+
+        // Attempt to re-schedule should revert
+        vm.prank(sponsor1);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                GenericKeyManager.MultisigRemovalAlreadyScheduled.selector, sponsor1, multisigHash, firstRemoval
+            )
+        );
+        emissary.scheduleMultisigRemoval(multisigHash);
     }
 
     function test_removeKey_AfterTimelock() public {
