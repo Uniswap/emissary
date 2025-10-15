@@ -1,12 +1,20 @@
-## Generalized Key Management System
+# @uniswap/emissary
 
-[![CI Status](../../actions/workflows/test.yaml/badge.svg)](../../actions)
+[![CI Status](https://github.com/uniswap/emissary/actions/workflows/test.yaml/badge.svg)](https://github.com/uniswap/emissary/actions)
+[![Docs](https://img.shields.io/badge/docs-latest-blue.svg)](./README.md)
 
-This repository provides a composable foundation for key management across different protocols. It was originally designed to implement the Emissary actor for The Compact v1, but has been generalized to support multiple protocols.
+**Emissary** is a minimal, audited, protocol-agnostic key management and signature verification layer for EVM accounts that aims to provide a generalized framework for managing delegated signature authority. It supports Secp256k1, P-256, and WebAuthn keys; first-class M-of-N multisig with timelocked key lifecycle; and context-aware verification for arbitrary protocols.
 
-#### Table of Contents
+**[KeyManagerEmissary](./src/KeyManagerEmissary.sol)** is a protocol-specific adapter for [The Compact v1](https://github.com/uniswap/the-compact). It is deployed at `0x00000000000059A79403C99B216981C8B7E40Cd7` on several major networks and [can be deployed permissionlessly](#deployments) to the same address on any EVM.
+
+> 🔐 The Emissary codebase has undergone independent security review by [OpenZeppelin](https://openzeppelin.com), and will soon become part of the [Uniswap Labs Bug Bounty Program on Cantina](https://cantina.xyz/code/f9df94db-c7b1-434b-bb06-d1360abdd1be/overview).
+>
+> All finalized audit reports are available in [the `audits/` folder](./audits).
+
+## Table of Contents
 
 - [Overview](#overview)
+- [Deployments](#deployments)
 - [Architecture](#architecture)
 - [Components](#components)
 - [Multisig Support](#multisig-support)
@@ -14,6 +22,7 @@ This repository provides a composable foundation for key management across diffe
 - [Examples](#examples)
 - [Testing](#testing)
 - [Contributing](#contributing)
+- [License](#license)
 
 ## Overview
 
@@ -23,6 +32,72 @@ The system consists of several composable components that can be used independen
 2. **BaseKeyVerifier**: Generic signature verification with protocol support
 3. **KeyManagerEmissary**: Compact-specific adapter implementing IEmissary
 4. **ISignatureVerifier**: Generic interface for signature verification
+
+### Key Features
+
+#### Security
+
+- **Timelock Protection**: Configurable delays for key removal
+- **Access Control**: Customizable authorization patterns
+- **Signature Verification**: Multi-algorithm support (Secp256k1, P256, WebAuthn)
+- **Replay Protection**: Nonce and expiration support (protocol-specific implementation required)
+
+#### Composability
+
+- **Protocol Agnostic**: Generic foundation for any protocol
+- **Modular Design**: Use components independently or together
+- **Extensible**: Easy to add new protocols and key types
+- **Interoperable**: Standard interfaces for cross-protocol use
+
+#### Gas Efficiency
+
+- **Optimized Storage**: Efficient key storage and enumeration
+- **Assembly Usage**: Critical paths optimized with inline assembly
+- **Batch Operations**: Support for multiple key operations
+- **Minimal Proxy**: Deployable as minimal proxy for gas savings
+- **Targeted Verification**: Use `verifySignatureWithKey` for O(1) verification when key hash is known
+- **Multisig Optimization**: Bitmap-based signer references backed by existing key management
+
+## Deployments
+
+The deployment script leverages the Immutable Create2 Factory pattern to enable permissionless deterministic deployments of `KeyManagerEmissary` on any EVM network.
+
+### Current known deployments
+
+> ☝️ Feel free to submit a PR if you see a missing deployment.
+
+- [Ethereum Mainnet (chainId 1) @ `0x00000000000059A79403C99B216981C8B7E40Cd7`](https://etherscan.io/address/0x00000000000059A79403C99B216981C8B7E40Cd7)
+- [Optimism (chainId 10) @ `0x00000000000059A79403C99B216981C8B7E40Cd7`](https://optimistic.etherscan.io/address/0x00000000000059A79403C99B216981C8B7E40Cd7)
+- [Base (chainId 8453) @ `0x00000000000059A79403C99B216981C8B7E40Cd7`](https://basescan.org/address/0x00000000000059A79403C99B216981C8B7E40Cd7)
+- [Unichain (chainId 130) @ `0x00000000000059A79403C99B216981C8B7E40Cd7`](https://uniscan.xyz/address/0x00000000000059A79403C99B216981C8B7E40Cd7)
+- [Arbitrum One (chainId 42161) @ `0x00000000000059A79403C99B216981C8B7E40Cd7`](https://arbiscan.io/address/0x00000000000059A79403C99B216981C8B7E40Cd7)
+
+### Permissionless deterministic deployment to any EVM chain
+
+Deployments are permissionless and deterministic using the Immutable Create2 Factory at `0x0000000000FFe8B47B3e2130213B802212439497`.
+
+- **Factory**: `0x0000000000FFe8B47B3e2130213B802212439497` (must exist on the target chain)
+- **Salt** (derived with [0age's create2crunch](https://github.com/0age/create2crunch)): `0x00000000000000000000000000000000000000006c8e1b192c643f327b4d5c28`
+- **Target Address** (with current bytecode): `0x00000000000059A79403C99B216981C8B7E40Cd7`
+
+The [Deploy.s.sol script](./script/Deploy.s.sol) makes deployment a one-step process:
+
+```bash
+forge script script/Deploy.s.sol \
+  --rpc-url <network> \
+  --broadcast \
+  -vvvv
+```
+
+- The script ensures deployment lands at the expected deterministic address.
+- If the contract bytecode changes (compiler/settings/code), the resulting address changes; re-derive before deploying.
+
+Deterministic address derivation follows `keccak256(0xff ++ factory ++ salt ++ keccak256(init_code))` and takes the last 20 bytes; with the factory and salt above and current init code, this equals `0x00000000000059A79403C99B216981C8B7E40Cd7` on every EVM chain.
+
+Notes:
+- 0age's ImmutableCreate2Factory is widely deployed; if it's not yet present on a chain you need, you can [deploy it yourself](https://gist.github.com/ccashwell/a62fee57b90e9ee79150b65d9bf7a34d), then call `safeCreate2` with the same salt and init code (or just run the deploy script).
+- `safeCreate2` reverts if the contract is already deployed at the deterministic address (idempotent safety).
+- Use the same compiler version and settings (e.g., `solc_version`, `via_ir`) to preserve identical creation bytecode across chains. The deployment script will refuse to proceed if the deployed address doesn't match the expected one.
 
 ## Architecture
 
@@ -77,11 +152,10 @@ Extends GenericKeyManager with protocol-aware signature verification:
 
 ### KeyManagerEmissary
 
-A Compact-specific adapter that implements The Compact's IEmissary interface:
+An adapter that implements The Compact's IEmissary interface and implements protocol-specific checks:
 
-- **Compact Integration**: Implements IEmissary for The Compact v1
+- **Compact Integration**: Implements [IEmissary](https://github.com/uniswap/the-compact/tree/main/src/interfaces/IEmissary.sol) for The Compact v1
 - **Reset Period Compatibility**: Validates keys against lock tag requirements
-- **Legacy Support**: Maintains compatibility with original interface
 
 ### ISignatureVerifier
 
@@ -273,8 +347,8 @@ bool canVerify = verifier.canVerifySignature(
 ### The Compact Integration
 
 ```solidity
-// Deploy for The Compact
-KeyManagerEmissary emissary = new KeyManagerEmissary();
+// Canonical KeyManagerEmissary
+KeyManagerEmissary emissary = KeyManagerEmissary(0x00000000000059A79403C99B216981C8B7E40Cd7);
 
 // Register a key for a sponsor
 bytes32 keyHash = emissary.registerKey(
@@ -282,8 +356,13 @@ bytes32 keyHash = emissary.registerKey(
     abi.encode(sponsorAddress),
     ResetPeriod.OneDay
 );
+```
 
-// Verify claim (implements IEmissary)
+The sponsor can then use the canonical `KeyManagerEmissary` as your emissary in any type of compact. When The Compact attempts to validate the signature provided for the sponsor, it will first attempt to do so directly against the sponsor's own address. If that fails, it will proceed to call `verifyClaim` on the designated emissary:
+
+```
+// The Compact makes this call as needed during
+// the sponsor signature validation flow
 bytes4 selector = emissary.verifyClaim(
     sponsor,
     digest,
@@ -292,6 +371,8 @@ bytes4 selector = emissary.verifyClaim(
     lockTag
 );
 ```
+
+The emissary will then validate the signature against registered keys whose reset period is at least as long as the lock tag associated with the claim being validated. If an eligible key can verify the signature, a magic value (the selector for `IEmissary.verifyClaim`) is returned, confirming to The Compact that the signature represents the sponsor's authorization of the claim in question.
 
 ## Examples
 
@@ -503,30 +584,9 @@ Key test categories:
 - **Fuzz Tests**: Property-based testing with random inputs
 - **Protocol Tests**: Specific protocol adapter testing
 
-## Key Features
+## Contributing
 
-### Security
-
-- **Timelock Protection**: Configurable delays for key removal
-- **Access Control**: Customizable authorization patterns
-- **Signature Verification**: Multi-algorithm support (Secp256k1, P256, WebAuthn)
-- **Replay Protection**: Nonce and expiration support
-
-### Composability
-
-- **Protocol Agnostic**: Generic foundation for any protocol
-- **Modular Design**: Use components independently or together
-- **Extensible**: Easy to add new protocols and key types
-- **Interoperable**: Standard interfaces for cross-protocol use
-
-### Gas Efficiency
-
-- **Optimized Storage**: Efficient key storage and enumeration
-- **Assembly Usage**: Critical paths optimized with inline assembly
-- **Batch Operations**: Support for multiple key operations
-- **Minimal Proxy**: Deployable as minimal proxy for gas savings
-- **Targeted Verification**: Use `verifySignatureWithKey` for O(1) verification when key hash is known
-- **Multisig Optimization**: Bitmap-based signer references backed by existing key management
+Emissary is intended to be a reusable primitive and contributions are welcome. See the latest guidelines in [CONTRIBUTING.md](CONTRIBUTING.md), or open an issue!
 
 ## License
 
