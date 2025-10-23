@@ -1,5 +1,5 @@
 # GenericKeyManager
-[Git Source](https://github.com/Uniswap/emissary/blob/73d4c334089f173fa867450ba717f1216afcec61/src/GenericKeyManager.sol)
+[Git Source](https://github.com/Uniswap/emissary/blob/1ac03c1d6722b8d35811b42c25b02aaaf4b09e4b/src/GenericKeyManager.sol)
 
 A generic key management contract that provides core functionality
 
@@ -1175,6 +1175,21 @@ error MultisigAlreadyRegistered(address account, bytes32 multisigHash);
 |----|----|-----------|
 |`account`|`address`|The account address|
 |`multisigHash`|`bytes32`|The multisig hash|
+
+### MaxKeysPerAccountExceeded
+Thrown when registering a key would exceed capacity per account
+
+
+```solidity
+error MaxKeysPerAccountExceeded(address account, uint256 attemptedCount);
+```
+
+**Parameters**
+
+|Name|Type|Description|
+|----|----|-----------|
+|`account`|`address`|The account address|
+|`attemptedCount`|`uint256`|The attempted total number of keys|
 
 ### MultisigNotRegistered
 Thrown when a multisig is not registered
