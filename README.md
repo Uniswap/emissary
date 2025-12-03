@@ -95,6 +95,7 @@ forge script script/Deploy.s.sol \
 Deterministic address derivation follows `keccak256(0xff ++ factory ++ salt ++ keccak256(init_code))` and takes the last 20 bytes; with the factory and salt above and current init code, this equals `0x00000000000059A79403C99B216981C8B7E40Cd7` on every EVM chain.
 
 Notes:
+
 - 0age's ImmutableCreate2Factory is widely deployed; if it's not yet present on a chain you need, you can [deploy it yourself](https://gist.github.com/ccashwell/a62fee57b90e9ee79150b65d9bf7a34d), then call `safeCreate2` with the same salt and init code (or just run the deploy script).
 - `safeCreate2` reverts if the contract is already deployed at the deterministic address (idempotent safety).
 - Use the same compiler version and settings (e.g., `solc_version`, `via_ir`) to preserve identical creation bytecode across chains. The deployment script will refuse to proceed if the deployed address doesn't match the expected one.

@@ -76,7 +76,9 @@ contract KeyLib_OnCurve_Test is Test {
         uint256 exp = (P + 1) >> 2;
         uint256 y = _modExp(B % P, exp, P); // sqrt(b)
         uint256 wrongY = addmod(y, 1, P);
-        if (wrongY == y || wrongY == addmod(P, P - y, P)) wrongY = addmod(wrongY, 1, P);
+        if (wrongY == y || wrongY == addmod(P, P - y, P)) {
+            wrongY = addmod(wrongY, 1, P);
+        }
         assertFalse(harness.isOnCurve(0, wrongY), 'x=0 with wrong y must be invalid');
     }
 
@@ -110,7 +112,7 @@ contract KeyLib_OnCurve_Test is Test {
 
     function _modExp(uint256 base, uint256 exponent, uint256 modulus) internal view returns (uint256 result) {
         bytes memory precompileData = abi.encode(32, 32, 32, base, exponent, modulus);
-        (bool success, bytes memory result) = address(0x05).staticcall(precompileData);
-        return abi.decode(result, (uint256));
+        (, bytes memory returnData) = address(0x05).staticcall(precompileData);
+        return abi.decode(returnData, (uint256));
     }
 }
